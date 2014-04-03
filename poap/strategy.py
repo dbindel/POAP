@@ -306,3 +306,64 @@ class OptimizerThread(threading.Thread):
             self.strategy.optimizer(self.objective)
         finally:
             self.proposalq.put(Proposal('terminate'))
+
+
+class SimpleMergedStrategy(object):
+    """Merge several strategies by taking the first valid proposal from them.
+
+    Attributes:
+        controller: Controller object used to determine whether we can eval
+        strategies: Prioritized list of strategies
+    """
+
+    def __init__(self, controller, strategies):
+        "Initialize merged strategy."
+        self.controller = controller
+        self.strategies = strategies
+
+    def propose_action(self):
+        "Go through strategies in order and choose the first valid action."
+        for strategy in self.strategies:
+            proposal = strategy.propose_action()
+            if proposal == None:
+                pass
+            elif proposal.action == 'eval' and not self.controller.can_work:
+                proposal.reject()
+            else:
+                return proposal
+
+
+class MaxEvalStrategy(object):
+    """Recommend termination of the iteration after some number of evals.
+
+    Attributes:
+        counter: Number of completed evals
+        max_counter: Max number of evals
+    """
+
+    def __init__(self, controller, max_counter):
+        """Initialize the strategy.
+
+        Args:
+            controller: Used for registering the feval callback
+            max_counter: Maximum number of evals desired
+        """
+        self.counter = 0
+        self.max_counter = max_counter
+        controller.add_feval_callback(self.on_new_feval)
+
+    def on_new_feval(self, record):
+        "On every feval, add a callback."
+        record.add_callback(self.on_update)
+
+    def on_update(self, record):
+        "On every completion, increment the counter."
+        if record.status == 'completed':
+            self.counter = self.counter + 1
+
+    def propose_action(self):
+        "Propose termination once the eval counter is high enough."
+        if self.counter >= self.max_counter:
+            return Proposal('terminate')
+        else:
+            return None
