@@ -4,6 +4,8 @@
 .. moduleauthor:: David Bindel <bindel@cornell.edu>
 """
 
+import time
+import heapq
 import Queue
 import threading
 from poap.strategy import EvalRecord
@@ -143,7 +145,14 @@ class ThreadController(Controller):
         Controller.__init__(self)
         self.workers = Queue.Queue()
         self.messages = Queue.Queue()
+        self.io_lock = threading.Lock()
 
+    def lprint(self, *args):
+        "Locking I/O."
+        self.io_lock.acquire()
+        print(args)
+        self.io_lock.release()
+        
     def add_timer(self, timeout, callback):
         "Add a task to be executed after a timeout (e.g. for monitoring)."
         t = threading.Timer(timeout, lambda: self.messages.put(callback))
@@ -199,6 +208,70 @@ class ThreadController(Controller):
                 proposal.worker.queue.put(('kill', proposal.record))
             else:
                 proposal.reject()
+
+
+class SimThreadController(ThreadController):
+    """Thread-based optimization controller with simulated delays.
+
+    The SimThreadController allows workers to simulate delays
+    (associated with communication or compute time) by calling a wait
+    method.  Whenever the controller would block waiting for a message
+    from a worker, we advance to the end of the next virtual wait
+    period and signal that the appropriate worker can proceed.  Any
+    model of network delays, etc. is left to the worker.  For the
+    moment, we assume the computational time at the controller is
+    negligible.
+    
+    TODO: Add a timer for computational time at the worker.
+    
+    Attributes:
+        time: Current simulated time
+        time_events: Time-stamped events
+    """
+
+    def __init__(self):
+        "Initialize the controller."
+        ThreadController.__init__(self)
+        self.time = 0
+        self.time_events = []
+        self.time_events_lock = threading.Lock()
+        self.io_lock = threading.Lock()
+
+    def push_event(self, timeout, event):
+        "Push an event onto the queue."
+        self.time_events_lock.acquire()
+        heapq.heappush(self.time_events, (self.time + timeout, event))
+        self.time_events_lock.release()
+
+    def pop_event(self):
+        "Pop an event from the queue."
+        self.time_events_lock.acquire()
+        (time, event) = heapq.heappop(self.time_events)
+        self.time = time
+        self.time_events_lock.release()
+        return (time, event)
+
+    def add_timer(self, timeout, callback):
+        "Add a task to be executed after a virtual timeout."
+        self.push_event(timeout, lambda: self.messages.put(callback))
+
+    def advance_time(self):
+        "Advance the virtual time step."
+        (time, event) = self.pop_event()
+        event()
+
+    def worker_wait(self, timeout):
+        "Wait in a worker thread for a virtual time period."
+        ready = threading.Event()
+        self.push_event(timeout, lambda: ready.set())
+        ready.wait()
+
+    def run_message(self):
+        "Process a message, blocking for one if none is available."
+        while self.messages.empty():
+            self.advance_time()
+        message = self.messages.get()
+        message()
 
 
 class BasicWorkerThread(threading.Thread):
