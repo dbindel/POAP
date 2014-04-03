@@ -35,8 +35,8 @@ def golden_coroutine(a, b, maxiter):
 
 def main():
     "Testing routine."
-    strategy = CoroutineStrategy(golden_coroutine(0.0, 1.0, 20))
-    controller = SerialController(strategy, lambda x: (x-0.123)*(x-0.123))
+    controller = SerialController(lambda x: (x-0.123)*(x-0.123))
+    controller.strategy = CoroutineStrategy(golden_coroutine(0.0, 1.0, 20))
     result = controller.run()
     print(result.value, result.params)
 
