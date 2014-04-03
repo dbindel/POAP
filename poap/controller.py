@@ -150,13 +150,13 @@ class ThreadController(Controller):
     def lprint(self, *args):
         "Locking I/O."
         self.io_lock.acquire()
-        print(args)
+        print args
         self.io_lock.release()
-        
+
     def add_timer(self, timeout, callback):
         "Add a task to be executed after a timeout (e.g. for monitoring)."
-        t = threading.Timer(timeout, lambda: self.messages.put(callback))
-        t.start()
+        thread = threading.Timer(timeout, lambda: self.messages.put(callback))
+        thread.start()
 
     def add_worker(self, worker):
         "Add a worker and queue a 'wake-up' message."
@@ -197,14 +197,12 @@ class ThreadController(Controller):
                 self.run_queued_messages()
                 self.run_message()
             elif proposal.action == 'terminate':
-                print('Terminate')
                 proposal.accept()
                 self.call_term_callbacks()
                 return self.best_point()
             elif proposal.action == 'eval' and self.can_work():
                 self.submit_work(proposal)
             elif proposal.action == 'kill' and not proposal.record.is_done():
-                print('Kill')
                 proposal.worker.queue.put(('kill', proposal.record))
             else:
                 proposal.reject()
@@ -221,19 +219,21 @@ class SimThreadController(ThreadController):
     model of network delays, etc. is left to the worker.  For the
     moment, we assume the computational time at the controller is
     negligible.
-    
-    TODO: Add a timer for computational time at the worker.
-    
+
     Attributes:
         time: Current simulated time
-        time_events: Time-stamped events
+        time_events: Time-stamped event heap
+        all_time: Flag if we want to time controller as well
+        wallclock: Wall clock time at last simulated time update
     """
 
-    def __init__(self):
+    def __init__(self, all_time=True):
         "Initialize the controller."
         ThreadController.__init__(self)
         self.time = 0
         self.time_events = []
+        self.all_time = all_time
+        self.wallclock = time.time()
         self.time_events_lock = threading.Lock()
         self.io_lock = threading.Lock()
 
@@ -246,24 +246,29 @@ class SimThreadController(ThreadController):
     def pop_event(self):
         "Pop an event from the queue."
         self.time_events_lock.acquire()
-        (time, event) = heapq.heappop(self.time_events)
-        self.time = time
+        (etime, event) = heapq.heappop(self.time_events)
         self.time_events_lock.release()
-        return (time, event)
+        return (etime, event)
 
     def add_timer(self, timeout, callback):
         "Add a task to be executed after a virtual timeout."
-        self.push_event(timeout, lambda: self.messages.put(callback))
+        self.push_event(timeout, lambda t: self.messages.put(callback))
 
     def advance_time(self):
         "Advance the virtual time step."
-        (time, event) = self.pop_event()
-        event()
+        (etime, event) = self.pop_event()
+        wallclock = time.time()
+        wall_elapsed = wallclock-self.wallclock
+        if self.all_time:
+            self.time = max(self.time + wall_elapsed, etime)
+        else:
+            self.time = etime
+        event(etime)
 
     def worker_wait(self, timeout):
         "Wait in a worker thread for a virtual time period."
         ready = threading.Event()
-        self.push_event(timeout, lambda: ready.set())
+        self.push_event(timeout, lambda t: ready.set())
         ready.wait()
 
     def run_message(self):
