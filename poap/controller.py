@@ -125,11 +125,17 @@ class ThreadController(Controller):
     available again, it should use add_worker to add itself
     back to the queue.
 
+    NB: This controller handles *all* proposals before checking for
+    messages.  Thus, the controller will freeze if the strategy keeps
+    producing (rejected) proposals without a change in state.  Use
+    only with strategies that check validity before making proposals.
+
     Attributes:
         strategy: Strategy for choosing optimization actions.
         fevals: Database of function evaluations
         workers: Queue of available worker threads
         messages: Queue of messages from workers
+
     """
 
     def __init__(self):

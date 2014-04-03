@@ -308,6 +308,24 @@ class OptimizerThread(threading.Thread):
             self.proposalq.put(Proposal('terminate'))
 
 
+class CheckWorkerStrategy(object):
+    "Preemptively kill eval proposals when there are no workers."
+    
+    def __init__(self, controller, strategy):
+        "Initialize checker strategy."
+        self.controller = controller
+        self.strategy = strategy
+
+    def propose_action(self):
+        "Generate filtered action proposal."
+        proposal = self.strategy.propose_action()
+        if (proposal and proposal.action == 'eval' and 
+            not self.controller.can_work()):
+            proposal.reject()
+            return None
+        return proposal
+
+
 class SimpleMergedStrategy(object):
     """Merge several strategies by taking the first valid proposal from them.
 
@@ -331,24 +349,6 @@ class SimpleMergedStrategy(object):
                 proposal.reject()
             else:
                 return proposal
-
-
-class CheckWorkerStrategy(object):
-    "Preemptively kill eval proposals when there are no workers."
-    
-    def __init__(self, controller, strategy):
-        "Initialize checker strategy."
-        self.controller = controller
-        self.strategy = strategy
-
-    def propose_action(self):
-        "Generate filtered action proposal."
-        proposal = self.strategy.propose_action()
-        if (proposal and proposal.action == 'eval' and 
-            not self.controller.can_work()):
-            proposal.reject()
-            return None
-        return proposal
 
 
 class MaxEvalStrategy(object):
