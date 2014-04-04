@@ -11,11 +11,18 @@ import Queue
 class Proposal(object):
     """Represent a proposed action.
 
+    We currently recognize three types of proposals: evaluation requests
+    ("eval"), requests to stop an evaluation ("kill"), and requests
+    to terminate the optimization ("terminate").  When an evaluation
+    proposal is accepted, the controller adds an evaluation record to the
+    proposal before notifying subscribers.
+
     Attributes:
         action: String describing the action
         args: Tuple of arguments to pass to the action
         accepted: Flag set on accept/reject decision
         callbacks: Functions to call on accept/reject of action
+        record: Evaluation record for accepted evaluation proposals
     """
 
     def __init__(self, action, *args):
@@ -58,11 +65,22 @@ class Proposal(object):
 class EvalRecord(object):
     """Represent progress of a function evaluation.
 
+    An evaluation record includes the evaluation point, status of the
+    evaluation, and a list of callbacks.  The status may be pending,
+    running, killed (deliberately), cancelled (due to a crash or
+    failure) or completed.  Once the function evaluation is completed,
+    the value is stored as an attribute in the evaluation record.  The
+    evaluation record callbacks are triggered on any relevant event,
+    including not only status changes but also intermediate results.
+    The nature of these intermediate results (lower bounds, initial
+    estimates, etc) is somewhat application-dependent.
+
     Attributes:
         params: Evaluation point for the function
         status: Status of the evaluation (pending, running, killed, completed)
         value: Return value (if completed)
         callbacks: Functions to call on status updates
+
     """
 
     def __init__(self, params, status='pending'):
@@ -114,13 +132,21 @@ class FixedSampleStrategy(object):
 
     The fixed sampling strategy is appropriate for any non-adaptive
     sampling scheme.  Since the strategy is non-adaptive, we can
-    employ as many available workers as we have points to process.
-    We keep trying any evaluation that fails, and suggest termination
-    only when all evaluations are complete.
+    employ as many available workers as we have points to process.  We
+    keep trying any evaluation that fails, and suggest termination
+    only when all evaluations are complete.  The points in the
+    experimental design can be provided as any iterable object (e.g. a
+    list or a generator function).  One can use a generator for an
+    infinite sequence if the fixed sampling strategy is used in
+    combination with a strategy that provides a termination criterion.
     """
 
     def __init__(self, points):
-        "Initialize the sampling scheme."
+        """Initialize the sampling scheme.
+        
+        Args:
+            points: Points list or generator function.
+        """
         def point_generator():
             "Generator wrapping the points list."
             for point in points:
@@ -309,7 +335,15 @@ class OptimizerThread(threading.Thread):
 
 
 class CheckWorkerStrategy(object):
-    "Preemptively kill eval proposals when there are no workers."
+    """Preemptively kill eval proposals when there are no workers.
+
+    A strategy like the fixed sampler is simple-minded, and will
+    propose a function evaluation even if the controller has no
+    workers available to carry it out.  This wrapper strategy
+    intercepts proposals from a wrapped strategy like the fixed
+    sampler, and only submits evaluation proposals if workers are
+    available.
+    """
 
     def __init__(self, controller, strategy):
         "Initialize checker strategy."
@@ -329,9 +363,15 @@ class CheckWorkerStrategy(object):
 class SimpleMergedStrategy(object):
     """Merge several strategies by taking the first valid proposal from them.
 
+    The simplest combination strategy is to keep a list of several
+    possible strategies in some priority order, query them for
+    proposals in priority order, and pass on the first plausible
+    proposal to the controller.
+
     Attributes:
         controller: Controller object used to determine whether we can eval
         strategies: Prioritized list of strategies
+
     """
 
     def __init__(self, controller, strategies):
