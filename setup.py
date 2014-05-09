@@ -6,7 +6,7 @@ setup(
     author='David Bindel',
     author_email='bindel@cornell.edu',
     packages=['poap', 'poap.test'],
-    scripts=[]
+    scripts=[],
     url='http://pypi.python.org/pypi/POAP/',
     license='LICENSE.txt',
     description='Python Optimization Asynchronous Plumbing.',

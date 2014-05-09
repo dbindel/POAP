@@ -80,7 +80,6 @@ class EvalRecord(object):
         status: Status of the evaluation (pending, running, killed, completed)
         value: Return value (if completed)
         callbacks: Functions to call on status updates
-
     """
 
     def __init__(self, params, status='pending'):
@@ -198,9 +197,6 @@ class CoroutineStrategy(object):
 
     Attributes:
         optimizer: Optimizer function (takes objective as an argument)
-        proposalq: Queue of proposed actions caused by optimizer.
-        valueq:    Queue of function values from proposed actions.
-        thread:    Thread in which the optimizer runs.
         proposal:  Proposal that the strategy is currently requesting.
     """
 
@@ -267,7 +263,7 @@ class ThreadStrategy(object):
         proposal:  Proposal that the strategy is currently requesting.
     """
 
-    def __init__(self, optimizer):
+    def __init__(self, optimizer, daemon=True):
         """Initialize the strategy.
 
         Args:
@@ -277,7 +273,7 @@ class ThreadStrategy(object):
         self.proposalq = Queue.Queue()
         self.valueq = Queue.Queue()
         self.thread = OptimizerThread(self)
-        self.thread.setDaemon(True)
+        self.thread.setDaemon(daemon)
         self.thread.start()
         self.proposal = self.proposalq.get()
 
