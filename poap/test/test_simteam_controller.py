@@ -7,13 +7,21 @@ import threading
 import Queue
 from poap.strategy import FixedSampleStrategy
 from poap.strategy import CheckWorkerStrategy
-from poap.controller import SimThreadController
-from poap.controller import BasicWorkerThread
+from poap.controller import SimTeamController
 
 def main():
     "Testing routine."
     samples = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]
-    controller = SimThreadController()
+
+    def objective(x):
+        "Objective function"
+        return (x-0.123)*(x-0.123)
+
+    def delay():
+        "Delay term"
+        return 5 + random.random()
+
+    controller = SimTeamController(objective, delay, 5)
     strategy = FixedSampleStrategy(samples)
     strategy = CheckWorkerStrategy(controller, strategy)
     controller.strategy = strategy
@@ -26,17 +34,6 @@ def main():
         else:
             print('No points yet')
         controller.add_timer(1, monitor)
-
-    def objective(x):
-        "Objective function -- run for about five seconds before returning."
-        controller.worker_wait(5 + random.random())
-        return (x-0.123)*(x-0.123)
-
-    for _ in range(5):
-        t = BasicWorkerThread(controller, objective)
-        controller.add_worker(t)
-        t.setDaemon(True)
-        t.start()
 
     controller.add_timer(1, monitor)
     result = controller.run()

@@ -188,7 +188,6 @@ class ThreadController(Controller):
             self.run_queued_messages()
             proposal = self.strategy.propose_action()
             if not proposal:
-                self.run_queued_messages()
                 self.run_message()
             elif proposal.action == 'terminate':
                 proposal.accept()
@@ -200,77 +199,6 @@ class ThreadController(Controller):
                 proposal.worker.queue.put(('kill', proposal.record))
             else:
                 proposal.reject()
-
-
-class SimThreadController(ThreadController):
-    """Thread-based optimization controller with simulated delays.
-
-    The SimThreadController allows workers to simulate delays
-    (associated with communication or compute time) by calling a wait
-    method.  Whenever the controller would block waiting for a message
-    from a worker, we advance to the end of the next virtual wait
-    period and signal that the appropriate worker can proceed.  Any
-    model of network delays, etc. is left to the worker.  For the
-    moment, we assume the computational time at the controller is
-    negligible.
-
-    Attributes:
-        time: Current simulated time
-        time_events: Time-stamped event heap
-        all_time: Flag if we want to time controller as well
-        wallclock: Wall clock time at last simulated time update
-    """
-
-    def __init__(self, all_time=True):
-        "Initialize the controller."
-        ThreadController.__init__(self)
-        self.time = 0
-        self.time_events = []
-        self.all_time = all_time
-        self.wallclock = time.time()
-        self.time_events_lock = threading.Lock()
-        self.io_lock = threading.Lock()
-
-    def push_event(self, timeout, event):
-        "Push an event onto the queue."
-        self.time_events_lock.acquire()
-        heapq.heappush(self.time_events, (self.time + timeout, event))
-        self.time_events_lock.release()
-
-    def pop_event(self):
-        "Pop an event from the queue."
-        self.time_events_lock.acquire()
-        (etime, event) = heapq.heappop(self.time_events)
-        self.time_events_lock.release()
-        return (etime, event)
-
-    def add_timer(self, timeout, callback):
-        "Add a task to be executed after a virtual timeout."
-        self.push_event(timeout, lambda t: self.messages.put(callback))
-
-    def advance_time(self):
-        "Advance the virtual time step."
-        (etime, event) = self.pop_event()
-        wallclock = time.time()
-        wall_elapsed = wallclock-self.wallclock
-        if self.all_time:
-            self.time = max(self.time + wall_elapsed, etime)
-        else:
-            self.time = etime
-        event(etime)
-
-    def worker_wait(self, timeout):
-        "Wait in a worker thread for a virtual time period."
-        ready = threading.Event()
-        self.push_event(timeout, lambda t: ready.set())
-        ready.wait()
-
-    def run_message(self):
-        "Process a message, blocking for one if none is available."
-        while self.messages.empty():
-            self.advance_time()
-        message = self.messages.get()
-        message()
 
 
 class BasicWorkerThread(threading.Thread):
@@ -297,3 +225,85 @@ class BasicWorkerThread(threading.Thread):
                 self.controller.messages.put(message)
             elif request[0] == 'terminate':
                 return
+
+
+class SimTeamController(Controller):
+    """Simulated parallel optimization controller.
+
+    Attributes:
+        strategy: Strategy for choosing optimization actions.
+        objective: Objective function
+        delay: Time delay function
+        workers: Number of workers available
+        fevals: Database of function evaluations
+        time: Current simulated time
+        time_events: Time-stamped event heap
+    """
+
+    def __init__(self, objective, delay, workers):
+        "Initialize the controller."
+        Controller.__init__(self)
+        self.objective = objective
+        self.delay = delay
+        self.workers = workers
+        self.time = 0
+        self.time_events = []
+
+    def can_work(self):
+        "Check if there are workers available."
+        return self.workers > 0
+
+    def submit_work(self, proposal):
+        "Submit a work event."
+        self.workers = self.workers-1
+        record = self.new_feval(proposal.args)
+        proposal.record = record
+        proposal.accept()
+        def event():
+            "Closure for marking record done at some later point."
+            if not record.is_done():
+                record.complete(self.objective(*record.params))
+                self.workers = self.workers + 1
+        timeout = self.delay()
+        self.add_timer(self.delay(), event)
+
+    def kill_work(self, proposal):
+        "Submit a kill event."
+        record = proposal.record
+        def event():
+            """Closure for canceling a function evaluation
+            NB: This is a separate event because it will eventually have delay!
+            """
+            if not record.is_done():
+                record.kill()
+                self.workers = self.workers + 1
+        self.add_timer(0, event)
+
+    def advance_time(self):
+        "Advance time to the next event."
+        assert self.time_events, "Deadlock detected!"
+        time, event = heapq.heappop(self.time_events)
+        self.time = time
+        event()
+    
+    def add_timer(self, timeout, event):
+        "Add new timer event."
+        heapq.heappush(self.time_events, (self.time + timeout, event))
+
+    def run(self):
+        "Run the optimization and return the best value."
+        while True:
+            proposal = self.strategy.propose_action()
+            if not proposal:
+                self.advance_time()
+            elif proposal.action == 'terminate':
+                proposal.accept()
+                self.call_term_callbacks()
+                return self.best_point()
+            elif proposal.action == 'eval' and self.can_work():
+                self.submit_work(proposal)
+            elif proposal.action == 'kill' and not proposal.record.is_done():
+                self.kill_work(proposal)
+            else:
+                proposal.reject()
+                self.advance_time()
