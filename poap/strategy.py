@@ -6,7 +6,7 @@
 
 import threading
 import Queue
-
+import numpy
 
 class Proposal(object):
     """Represent a proposed action.
@@ -196,7 +196,7 @@ class CoroutineStrategy(object):
     available.
 
     Attributes:
-        optimizer: Optimizer function (takes objective as an argument)
+        coroutine: Optimizer coroutine
         proposal:  Proposal that the strategy is currently requesting.
     """
 
@@ -243,6 +243,84 @@ class CoroutineStrategy(object):
             self.next_request(record.value)
         elif record.is_done():
             self.proposal = Proposal('eval', *record.params)
+
+
+class CoroutineBatchStrategy(object):
+    """Event-driven to synchronous parallel adapter using coroutines.
+
+    The coroutine strategy runs a synchronous parallel optimization
+    algorithm in a Python coroutine, with which the strategy
+    communicates via send/yield directives.  The optimization
+    coroutine yields batches of parameters at which it would like
+    function values; the strategy then requests the function
+    evaluation and returns the records associated with those function
+    evaluations when all have been completed.
+
+    Attributes:
+        coroutine: Optimizer coroutine
+        on_feval_start: Handler to be called on start of feval
+        on_feval_done: Handler to be called on successful feval completion
+        num_pending: Number of in-flight proposals and evaluations
+        pointq: Points that need to be proposed
+        results: Completion records to be returned to the coroutine
+    """
+
+    def __init__(self, coroutine, on_feval_start=None, on_feval_done=None):
+        self.coroutine = coroutine
+        self.on_feval_start = on_feval_start
+        self.on_feval_done = on_feval_done
+        self.num_pending = 0
+        self.pointq = []
+        self.results = []
+        try:
+            self.start_batch(self.coroutine.next())
+        except StopIteration:
+            pass
+
+    def start_batch(self, xs):
+        "Start evaluation of a batch of points."
+        self.num_pending = 0
+        for ii in range(xs.shape[0]):
+            self.pointq.append((ii, numpy.asarray(xs[ii,:])))
+        self.results = [None for ii in range(xs.shape[0])]
+
+    def propose_action(self):
+        "If we have a pending request, propose it."
+        try:
+            if not self.pointq and self.num_pending == 0:
+                self.start_batch(self.coroutine.send(self.results))
+            if self.pointq:
+                self.num_pending = self.num_pending + 1
+                batch_id, x = self.pointq.pop()
+                proposal = Proposal('eval', x)
+                proposal.batch_id = batch_id
+                proposal.add_callback(self.on_reply)
+                return proposal
+            return None
+        except StopIteration:
+            return Proposal('terminate')
+
+    def on_reply(self, proposal):
+        "If proposal accepted, wait for result; else, propose again."
+        if proposal.accepted:
+            if self.on_feval_start:
+                self.on_feval_start(proposal.record)
+            proposal.record.add_callback(self.on_update)
+            proposal.record.batch_id = proposal.batch_id
+        else:
+            self.num_pending = self.num_pending - 1
+            self.pointq.append((proposal.batch_id, proposal.args[0]))
+
+    def on_update(self, record):
+        "Return or re-request on completion or cancellation."
+        if record.status == 'completed':
+            self.num_pending = self.num_pending - 1
+            self.results[record.batch_id] = record
+            if self.on_feval_done:
+                self.on_feval_done(record)
+        elif record.is_done():
+            self.num_pending = self.num_pending - 1
+            self.pointq.append((record.batch_id, record.params))
 
 
 class ThreadStrategy(object):
