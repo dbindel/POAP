@@ -367,7 +367,6 @@ class SimpleMergedStrategy(object):
     Attributes:
         controller: Controller object used to determine whether we can eval
         strategies: Prioritized list of strategies
-
     """
 
     def __init__(self, controller, strategies):
@@ -385,6 +384,46 @@ class SimpleMergedStrategy(object):
                 proposal.reject()
             else:
                 return proposal
+
+
+class MultiStartStrategy(object):
+    """Merge several strategies by taking the first valid eval proposal.
+
+    This strategy is similar to the SimpleMergedStrategy, except that we
+    only terminate once all the worker strategies have voted to terminate.
+
+    Attributes:
+        controller: Controller object used to determine whether we can eval
+        strategies: Prioritized list of strategies
+    """
+
+    def __init__(self, controller, strategies):
+        "Initialize merged strategy."
+        self.controller = controller
+        self.strategies = strategies
+
+    def propose_action(self):
+        """Go through strategies in order and choose the first valid action.
+        Terminate iff all workers vote to terminate.
+        """
+        proposals = [strategy.propose_action() for strategy in self.strategies]
+        chosen_proposal = None
+        terminate_votes = 0
+        for proposal in proposals:
+            if not proposal:
+                pass
+            elif proposal.action == 'eval' and self.controller.can_work():
+                chosen_proposal = proposal
+            elif proposal.action == 'kill':
+                chosen_proposal = proposal
+            elif proposal.action == 'terminate':
+                terminate_votes = terminate_votes + 1
+        for proposal in proposals:
+            if proposal != None and proposal != chosen_proposal:
+                proposal.reject()
+        if terminate_votes == len(proposals):
+            return Proposal("terminate")
+        return chosen_proposal
 
 
 class MaxEvalStrategy(object):
