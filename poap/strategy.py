@@ -139,16 +139,29 @@ class RetryStrategy(object):
         strategy: Strategy for which we manage resubmissions
         num_pending: Number of proposals/fevals in flight
         pointq: Queue of evaluation points to be sent
+        tagname: Name of attribute used to store auxiliary data
     """
 
-    def __init__(self, strategy):
+    def __init__(self, strategy, tagname=None):
         self.strategy = strategy
+        self.tagname = None
         self.num_pending = 0
         self.pointq = []
 
-    def append(self, point):
+    def _set_tag(self, obj, tag):
+        "Set the tag data field on a proposal or record."
+        if self.tagname:
+            setattr(obj, self.tagname, tag)
+
+    def _get_tag(self, obj):
+        "Get the tag data field from a proposal or record."
+        if self.tagname:
+            return getattr(obj, self.tagname)
+        return None
+
+    def append(self, point, tag=None):
         "Add a point to the queue."
-        self.pointq.append(point)
+        self.pointq.append((point,tag))
 
     def num_outstanding(self):
         "Return number of outstanding fevals"
@@ -158,8 +171,10 @@ class RetryStrategy(object):
         "Propose an action."
         if self.pointq:
             self.num_pending = self.num_pending + 1
-            proposal = Proposal('eval', self.pointq.pop())
+            x, tag = self.pointq.pop()
+            proposal = Proposal('eval', x)
             proposal.add_callback(self.on_reply)
+            self._set_tag(proposal, tag)
             return proposal
         return None
 
@@ -167,9 +182,10 @@ class RetryStrategy(object):
         "Process a response to a proposal."
         if proposal.accepted:
             proposal.record.add_callback(self.on_update)
+            self._set_tag(proposal.record, self._get_tag(proposal))
         else:
             self.num_pending = self.num_pending - 1
-            self.pointq.append(proposal.args[0])
+            self.pointq.append((proposal.args[0], self._get_tag(proposal)))
 
     def on_update(self, record):
         "Process a response to a record update."
@@ -179,7 +195,7 @@ class RetryStrategy(object):
                 self.strategy.on_complete(record)
         elif record.is_done():
             self.num_pending = self.num_pending - 1
-            self.pointq.append(record.params)
+            self.pointq.append((record.params, self._get_tag(record)))
         else:
             if hasattr(self.strategy, "on_update"):
                 self.strategy.on_update(record)
