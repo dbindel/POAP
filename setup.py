@@ -2,7 +2,7 @@ from distutils.core import setup
 
 setup(
     name='POAP',
-    version='0.1.0',
+    version='0.1.1',
     author='David Bindel',
     author_email='bindel@cornell.edu',
     packages=['poap', 'poap.test'],
