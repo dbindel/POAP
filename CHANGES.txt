@@ -1,1 +1,8 @@
+v0.1.1, 2014-07-04
+        Replaced SimThreadController with SimTeamController
+        Added RetryStrategy to manage point resubmission
+        Added CoroutineBatchStrategy
+        Made daemonization of ThreadStrategy optional
+        Added MultiStartStrategy
+
 v0.1.0, 2014-04-02 -- Initial release
