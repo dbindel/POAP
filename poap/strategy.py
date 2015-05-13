@@ -4,8 +4,12 @@
 .. moduleauthor:: David Bindel <bindel@cornell.edu>
 """
 
+try:
+    import Queue
+except ImportError:
+    import queue as Queue
+
 import threading
-import Queue
 import numpy
 
 class Proposal(object):
@@ -233,7 +237,7 @@ class FixedSampleStrategy(object):
         "Propose an action based on outstanding points."
         try:
             if not self.proposed_points:
-                point = self.point_generator.next()
+                point = next(self.point_generator)
                 self.proposed_points.append(point)
             point = self.proposed_points.pop()
             proposal = Proposal('eval', point)
@@ -280,7 +284,7 @@ class CoroutineStrategy(object):
         self.coroutine = coroutine
         self.done = False
         try:
-            self.proposal = Proposal('eval', self.coroutine.next())
+            self.proposal = Proposal('eval', next(self.coroutine))
         except StopIteration:
             self.proposal = Proposal('terminate')
 
@@ -348,7 +352,7 @@ class CoroutineBatchStrategy(object):
         self.pointq = []
         self.results = []
         try:
-            self.start_batch(self.coroutine.next())
+            self.start_batch(next(self.coroutine))
         except StopIteration:
             pass
 

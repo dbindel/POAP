@@ -3,8 +3,6 @@ Test fixed sampling strategy.
 """
 
 import random
-import threading
-import Queue
 from poap.strategy import FixedSampleStrategy
 from poap.strategy import CheckWorkerStrategy
 from poap.controller import SimTeamController

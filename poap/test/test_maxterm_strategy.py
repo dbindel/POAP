@@ -15,7 +15,7 @@ def random_generator():
 
 def main():
     "Testing routine."
-    controller = SerialController(None, lambda x: (x-0.123)*(x-0.123))
+    controller = SerialController(lambda x: (x-0.123)*(x-0.123))
     strategies = [MaxEvalStrategy(controller, 100),
                   FixedSampleStrategy(random_generator())]
     controller.strategy = SimpleMergedStrategy(controller, strategies)

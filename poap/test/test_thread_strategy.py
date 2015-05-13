@@ -38,6 +38,7 @@ def main():
     "Testing routine."
     strategy = ThreadStrategy(lambda f: golden_section(f, 0.0, 1.0, 20))
     controller = SerialController(lambda x: (x-0.123)*(x-0.123))
+    controller.strategy = strategy
     result = controller.run()
     print(result.value, result.params)
 
