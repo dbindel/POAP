@@ -1,3 +1,7 @@
+v0.1.2, 2015-05-13
+	Changes for compatibility with both Python 2 and Python 3
+	Corrected testers
+
 v0.1.1, 2014-07-04
         Replaced SimThreadController with SimTeamController
         Added RetryStrategy to manage point resubmission
