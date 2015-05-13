@@ -9,7 +9,6 @@ try:
 except ImportError:
     import queue as Queue
 
-import time
 import heapq
 import threading
 from poap.strategy import EvalRecord
@@ -222,10 +221,12 @@ class BasicWorkerThread(threading.Thread):
             if request[0] == 'eval':
                 record = request[1]
                 value = self.objective(*record.params)
+
                 def message():
                     "Requested actions for the controller."
                     record.complete(value)
                     self.controller.add_worker(self)
+
                 self.controller.messages.put(message)
             elif request[0] == 'terminate':
                 return
@@ -263,17 +264,19 @@ class SimTeamController(Controller):
         record = self.new_feval(proposal.args)
         proposal.record = record
         proposal.accept()
+
         def event():
             "Closure for marking record done at some later point."
             if not record.is_done():
                 record.complete(self.objective(*record.params))
                 self.workers = self.workers + 1
-        timeout = self.delay()
+
         self.add_timer(self.delay(), event)
 
     def kill_work(self, proposal):
         "Submit a kill event."
         record = proposal.record
+
         def event():
             """Closure for canceling a function evaluation
             NB: This is a separate event because it will eventually have delay!
@@ -281,6 +284,7 @@ class SimTeamController(Controller):
             if not record.is_done():
                 record.kill()
                 self.workers = self.workers + 1
+
         self.add_timer(0, event)
 
     def advance_time(self):
@@ -289,7 +293,7 @@ class SimTeamController(Controller):
         time, event = heapq.heappop(self.time_events)
         self.time = time
         event()
-    
+
     def add_timer(self, timeout, event):
         "Add new timer event."
         heapq.heappush(self.time_events, (self.time + timeout, event))

@@ -8,10 +8,12 @@ from poap.strategy import MaxEvalStrategy
 from poap.strategy import SimpleMergedStrategy
 from poap.controller import SerialController
 
+
 def random_generator():
     "Generate a stream of [0,1) uniform random samples."
     while True:
         yield random.random()
+
 
 def main():
     "Testing routine."
@@ -21,6 +23,7 @@ def main():
     controller.strategy = SimpleMergedStrategy(controller, strategies)
     result = controller.run()
     print(result.value, result.params)
+
 
 if __name__ == '__main__':
     main()

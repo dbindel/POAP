@@ -12,6 +12,7 @@ except ImportError:
 import threading
 import numpy
 
+
 class Proposal(object):
     """Represent a proposed action.
 
@@ -138,7 +139,7 @@ class RetryStrategy(object):
     RetryStrategy is rejected, or i the function evaluation terminates
     unsuccessfully, the RetryStrategy adds it back to the queue of
     points to be evaluated.
-    
+
     Attributes:
         strategy: Strategy for which we manage resubmissions
         num_pending: Number of proposals/fevals in flight
@@ -165,7 +166,7 @@ class RetryStrategy(object):
 
     def append(self, point, tag=None):
         "Add a point to the queue."
-        self.pointq.append((point,tag))
+        self.pointq.append((point, tag))
 
     def num_outstanding(self):
         "Return number of outstanding fevals"
@@ -221,7 +222,7 @@ class FixedSampleStrategy(object):
 
     def __init__(self, points):
         """Initialize the sampling scheme.
-        
+
         Args:
             points: Points list or generator function.
         """
@@ -360,7 +361,7 @@ class CoroutineBatchStrategy(object):
         "Start evaluation of a batch of points."
         self.num_pending = 0
         for ii in range(xs.shape[0]):
-            self.pointq.append((ii, numpy.asarray(xs[ii,:])))
+            self.pointq.append((ii, numpy.asarray(xs[ii, :])))
         self.results = [None for ii in range(xs.shape[0])]
 
     def propose_action(self):
@@ -507,7 +508,7 @@ class CheckWorkerStrategy(object):
         "Generate filtered action proposal."
         proposal = self.strategy.propose_action()
         if (proposal and proposal.action == 'eval' and
-            not self.controller.can_work()):
+                not self.controller.can_work()):
             proposal.reject()
             return None
         return proposal
@@ -535,7 +536,7 @@ class SimpleMergedStrategy(object):
         "Go through strategies in order and choose the first valid action."
         for strategy in self.strategies:
             proposal = strategy.propose_action()
-            if proposal == None:
+            if proposal is None:
                 pass
             elif proposal.action == 'eval' and not self.controller.can_work():
                 proposal.reject()
@@ -576,7 +577,7 @@ class MultiStartStrategy(object):
             elif proposal.action == 'terminate':
                 terminate_votes = terminate_votes + 1
         for proposal in proposals:
-            if proposal != None and proposal != chosen_proposal:
+            if proposal is not None and proposal != chosen_proposal:
                 proposal.reject()
         if terminate_votes == len(proposals):
             return Proposal("terminate")

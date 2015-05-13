@@ -7,6 +7,7 @@ from poap.strategy import FixedSampleStrategy
 from poap.strategy import CheckWorkerStrategy
 from poap.controller import SimTeamController
 
+
 def main():
     "Testing routine."
     samples = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]
@@ -36,6 +37,7 @@ def main():
     controller.add_timer(1, monitor)
     result = controller.run()
     print('Final', result.value, result.params)
+
 
 if __name__ == '__main__':
     main()

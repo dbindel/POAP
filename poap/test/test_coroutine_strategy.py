@@ -6,6 +6,7 @@ import math
 from poap.strategy import CoroutineStrategy
 from poap.controller import SerialController
 
+
 def golden_coroutine(a, b, maxiter):
     """Golden section search strategy.
 
@@ -32,6 +33,7 @@ def golden_coroutine(a, b, maxiter):
             f2 = f1
             x1 = a + (1-tau)*(b-a)
             f1 = (yield x1)
+
 
 def main():
     "Testing routine."

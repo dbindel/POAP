@@ -9,10 +9,12 @@ from poap.strategy import CheckWorkerStrategy
 from poap.controller import ThreadController
 from poap.controller import BasicWorkerThread
 
+
 def objective(x):
     "Objective function -- run for about five seconds before returning."
     time.sleep(5 + random.random())
     return (x-0.123)*(x-0.123)
+
 
 def main():
     "Testing routine."
@@ -39,6 +41,7 @@ def main():
     controller.add_timer(1, monitor)
     result = controller.run()
     print('Final', result.value, result.params)
+
 
 if __name__ == '__main__':
     main()

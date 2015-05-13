@@ -6,6 +6,7 @@ import math
 from poap.strategy import ThreadStrategy
 from poap.controller import SerialController
 
+
 def golden_section(objective, a, b, maxiter):
     """Golden section search routine.
 
@@ -34,6 +35,7 @@ def golden_section(objective, a, b, maxiter):
             x1 = a + (1-tau)*(b-a)
             f1 = objective(x1)
 
+
 def main():
     "Testing routine."
     strategy = ThreadStrategy(lambda f: golden_section(f, 0.0, 1.0, 20))
@@ -41,6 +43,7 @@ def main():
     controller.strategy = strategy
     result = controller.run()
     print(result.value, result.params)
+
 
 if __name__ == '__main__':
     main()
