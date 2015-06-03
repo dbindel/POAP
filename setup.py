@@ -1,4 +1,4 @@
-from distutils.core import setup
+from setuptools import setup, find_packages
 
 setup(
     name='POAP',
@@ -11,6 +11,16 @@ setup(
     license='LICENSE.txt',
     description='Python Optimization Asynchronous Plumbing.',
     long_description=open('README.txt').read(),
+    classifiers=[
+        'Development Status :: 3 - Alpha',
+        'Intended Audience :: Developers',
+        'License :: OSI Approved :: MIT License',
+        'Programming Language :: Python :: 2.7',
+        'Programming Language :: Python :: 3',
+        'Programming Language :: Python :: 3.2',
+        'Programming Language :: Python :: 3.3',
+        'Programming Language :: Python :: 3.4',        
+    ],
     install_requires=[
     ],
 )
