@@ -10,6 +10,7 @@ except ImportError:
     import queue as Queue
 
 import heapq
+import random
 import threading
 from poap.strategy import EvalRecord
 
@@ -114,27 +115,28 @@ class SerialController(Controller):
 class ThreadController(Controller):
     """Thread-based optimization controller.
 
-    The optimizer dispatches work to a queue of worker threads.
-    Each thread has a message queue that receives messages of
-    the form
+    The optimizer dispatches work to a queue of workers.
+    Each worker has methods of the form
 
-       ('eval', record)
-       ('kill', record)
+       worker.eval(record)
+       worker.kill(record)
 
-    We assume the worker will respond to eval requests, but
-    may ignore kill requests.  On eval requests, the worker
-    should either attempt the evaluation or mark the record
-    as killed.  The worker sends status updates back to the
-    controller in terms of lambdas (executed at the controller)
+    These methods are asynchronous: they start a function evaluation
+    or termination, but do not necessarily complete it.  The worker
+    must respond to eval requests, but may ignore kill requests.  On
+    eval requests, the worker should either attempt the evaluation or
+    mark the record as killed.  The worker sends status updates back
+    to the controller in terms of lambdas (executed at the controller)
     that update the relevant record.  When the worker becomes
-    available again, it should use add_worker to add itself
-    back to the queue.
+    available again, it should use add_worker to add itself back to
+    the queue.
 
     Attributes:
         strategy: Strategy for choosing optimization actions.
         fevals: Database of function evaluations
         workers: Queue of available worker threads
         messages: Queue of messages from workers
+
     """
 
     def __init__(self):
@@ -147,72 +149,137 @@ class ThreadController(Controller):
     def lprint(self, *args):
         "Locking I/O."
         self.io_lock.acquire()
-        print(args)
+        print(*args)
         self.io_lock.release()
 
     def add_timer(self, timeout, callback):
         "Add a task to be executed after a timeout (e.g. for monitoring)."
-        thread = threading.Timer(timeout, lambda: self.messages.put(callback))
+        thread = threading.Timer(timeout, lambda: self.add_message(callback))
         thread.start()
+
+    def add_message(self, message=None):
+        "Queue up a message."
+        if message is None:
+            self.messages.put(lambda: None)
+        else:
+            self.messages.put(message)
 
     def add_worker(self, worker):
         "Add a worker and queue a 'wake-up' message."
         self.workers.put(worker)
-        self.messages.put(lambda: None)
+        self.add_message()
+
+    def launch_worker(self, worker):
+        "Launch and take ownership of a new worker thread."
+        self.add_worker(worker)
+        self.add_term_callback(worker.terminate)
+        worker.start()
 
     def can_work(self):
         "Claim we can work if a worker is available."
         return not self.workers.empty()
 
-    def submit_work(self, proposal):
+    def _submit_work(self, proposal):
         "Submit proposed work."
         try:
             worker = self.workers.get_nowait()
-            proposal.worker = worker
             proposal.record = self.new_feval(proposal.args)
+            proposal.record.worker = worker
             proposal.accept()
-            worker.queue.put(('eval', proposal.record))
+            worker.eval(proposal.record)
         except Queue.Empty:
             proposal.reject()
 
-    def run_message(self):
+    def _run_message(self):
         "Process a message, blocking for one if none is available."
         message = self.messages.get()
         message()
 
-    def run_queued_messages(self):
+    def _run_queued_messages(self):
         "Process any queued messages."
         while not self.messages.empty():
-            self.run_message()
+            self._run_message()
 
     def run(self):
         "Run the optimization and return the best value."
         while True:
-            self.run_queued_messages()
+            self._run_queued_messages()
             proposal = self.strategy.propose_action()
             if not proposal:
-                self.run_message()
+                self._run_message()
             elif proposal.action == 'terminate':
                 proposal.accept()
                 self.call_term_callbacks()
                 return self.best_point()
             elif proposal.action == 'eval' and self.can_work():
-                self.submit_work(proposal)
+                self._submit_work(proposal)
             elif proposal.action == 'kill' and not proposal.record.is_done():
-                proposal.worker.queue.put(('kill', proposal.record))
+                proposal.worker.kill(proposal.record)
             else:
                 proposal.reject()
 
 
-class BasicWorkerThread(threading.Thread):
-    """Basic worker for use with the thread controller."""
+class BaseWorkerThread(threading.Thread):
+    """Worker base class for use with the thread controller.
 
-    def __init__(self, controller, objective):
+    The BaseWorkerThread class has a run routine that actually handles
+    the worker event loop, and a set of helper routines for
+    dispatching messages into the worker event loop (usually from the
+    controller) and dispatching messages to the controller (usually
+    from the worker).
+    """
+
+    def __init__(self, controller):
         "Initialize the worker."
-        super(BasicWorkerThread, self).__init__()
+        super(BaseWorkerThread, self).__init__()
         self.controller = controller
-        self.objective = objective
         self.queue = Queue.Queue()
+
+    def eval(self, record):
+        "Start evaluation."
+        self.queue.put(('eval', record))
+
+    def kill(self, record):
+        "Send kill message to worker."
+        self.queue.put(('kill', record))
+
+    def terminate(self):
+        "Send termination message to worker."
+        self.queue.put(('terminate',))
+
+    def lprint(self, *args):
+        "Print log message at controller"
+        self.controller.lprint(*args)
+
+    def add_message(self, message):
+        "Send message to be executed at the controller."
+        self.controller.add_message(message)
+
+    def add_worker(self):
+        "Add worker back to the work queue."
+        self.controller.add_worker(self)
+
+    def finish_success(self, record, value):
+        "Finish successful work on a record and add ourselves back."
+        self.add_message(lambda: record.complete(value))
+        self.add_worker()
+
+    def finish_failure(self, record):
+        "Finish recording failure on a record and add ourselves back."
+        self.add_message(record.kill)
+        self.add_worker()
+
+    def handle_eval(self, record):
+        "Process an eval request."
+        pass
+
+    def handle_kill(self, record):
+        "Process a kill request"
+        pass
+
+    def handle_terminate(self):
+        "Handle any cleanup on a terminate request"
+        pass
 
     def run(self):
         "Run requests as long as we get them."
@@ -220,16 +287,101 @@ class BasicWorkerThread(threading.Thread):
             request = self.queue.get()
             if request[0] == 'eval':
                 record = request[1]
-                value = self.objective(*record.params)
-
-                def message():
-                    "Requested actions for the controller."
-                    record.complete(value)
-                    self.controller.add_worker(self)
-
-                self.controller.messages.put(message)
+                self.add_message(record.running)
+                self.handle_eval(record)
+            elif request[0] == 'kill':
+                self.handle_kill(request[1])
             elif request[0] == 'terminate':
+                self.handle_terminate()
                 return
+
+
+class BasicWorkerThread(BaseWorkerThread):
+    """Basic worker for use with the thread controller.
+
+    The BasicWorkerThread calls a Python objective function
+    when asked to do an evaluation.  This is concurrent, but only
+    results in parallelism if the objective function implementation
+    itself allows parallelism (e.g. because it communicates with
+    an external entity via a pipe, socket, or whatever).
+    """
+
+    def __init__(self, controller, objective):
+        "Initialize the worker."
+        super(BasicWorkerThread, self).__init__(controller)
+        self.objective = objective
+
+    def handle_eval(self, record):
+        self.finish_success(record, self.objective(*record.params))
+
+
+class ProcessWorkerThread(BaseWorkerThread):
+    """Subprocess worker for use with the thread controller.
+
+    The ProcessWorkerThread is meant for use as a base class.
+    Implementations that inherit from ProcessWorkerThread should
+    define a handle_eval method that sets the process field so that it
+    can be interrupted if needed.  This allows use of blocking
+    communication primitives while at the same time allowing
+    interruption.
+    """
+
+    def __init__(self, controller):
+        "Initialize the worker."
+        super(ProcessWorkerThread, self).__init__(controller)
+        self.process = None
+
+    def kill(self, record):
+        "Send kill message."
+        if self.process is not None and self.process.poll() is None:
+            self.process.terminate()
+        super(ProcessWorkerThread, self).kill(record)
+
+    def terminate(self):
+        "Send termination message."
+        if self.process is not None and self.process.poll() is None:
+            self.process.terminate()
+        super(ProcessWorkerThread, self).terminate()
+        self.join()
+
+
+class ChaosMonkey(object):
+    """Randomly kill running function evaluations."""
+
+    def __init__(self, controller, mtbf=1):
+        """Release the chaos monkey!
+
+        Args:
+            controller: The controller whose fevals we will kill
+            mtbf: Mean time between failure (assume Poisson process)
+        """
+        self.controller = controller
+        self.running_fevals = []
+        self.lam = 1.0/mtbf
+        controller.add_feval_callback(self.on_new_feval)
+        controller.add_timer(random.expovariate(self.lam), self.on_timer)
+
+    def on_new_feval(self, record):
+        "On every feval, add a callback."
+        record.chaos_target = False
+        record.add_callback(self.on_update)
+
+    def on_update(self, record):
+        "On every completion, remove from list"
+        if record.status == 'running' and not record.chaos_target:
+            record.chaos_target = True
+            self.running_fevals.append(record)
+        elif record.is_done() and record.chaos_target:
+            record.chaos_target = False
+            self.running_fevals.remove(record)
+
+    def on_timer(self):
+        if self.running_fevals:
+            record = self.running_fevals.pop()
+            record.chaos_target = False
+            record.worker.kill(record)
+            self.controller.lprint("Monkey attack! {0}".format(record.params))
+        self.controller.add_timer(random.expovariate(self.lam), self.on_timer)
 
 
 class SimTeamController(Controller):

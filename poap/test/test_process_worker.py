@@ -1,19 +1,29 @@
 """
-Test fixed sampling strategy.
+Test shell-out to another process.
 """
 
 import time
 import random
+import subprocess
 from poap.strategy import FixedSampleStrategy
 from poap.strategy import CheckWorkerStrategy
 from poap.controller import ThreadController
-from poap.controller import BasicWorkerThread
+from poap.controller import ChaosMonkey
+from poap.controller import ProcessWorkerThread
 
 
-def objective(x):
-    "Objective function -- run for about five seconds before returning."
-    time.sleep(5 + random.random())
-    return (x-0.123)*(x-0.123)
+class DummySim(ProcessWorkerThread):
+
+    def handle_eval(self, record):
+        args = ['./dummy_sim', str(*record.params)]
+        self.process = subprocess.Popen(args, stdout=subprocess.PIPE)
+        data = self.process.communicate()[0]
+        try:
+            self.finish_success(record, float(data))
+            self.lprint("Success: {0}".format(record.params))
+        except ValueError:
+            self.finish_failure(record)
+            self.lprint("Failure: {0}".format(record.params))
 
 
 def main():
@@ -23,7 +33,7 @@ def main():
     strategy = FixedSampleStrategy(samples)
     strategy = CheckWorkerStrategy(controller, strategy)
     controller.strategy = strategy
-
+    
     def monitor():
         "Report progress of the optimization, roughly once a second."
         record = controller.best_point()
@@ -34,9 +44,10 @@ def main():
         controller.add_timer(1, monitor)
 
     for _ in range(5):
-        controller.launch_worker(BasicWorkerThread(controller, objective))
+        controller.launch_worker(DummySim(controller))
 
     controller.add_timer(1, monitor)
+    monkey = ChaosMonkey(controller, mtbf=3)
     result = controller.run()
     print('Final', result.value, result.params)
 

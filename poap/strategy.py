@@ -113,6 +113,11 @@ class EvalRecord(object):
         for callback in self.callbacks:
             callback(self)
 
+    def running(self):
+        "Change status to 'running' and execute callbacks."
+        self.status = 'running'
+        self.update()
+
     def kill(self):
         "Change status to 'killed' and execute callbacks."
         self.status = 'killed'
@@ -262,6 +267,7 @@ class FixedSampleStrategy(object):
         if record.status == 'completed':
             self.outstanding = self.outstanding-1
         elif record.is_done():
+            self.outstanding = self.outstanding-1
             self.proposed_points.append(*record.params)
 
 

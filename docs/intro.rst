@@ -157,4 +157,29 @@ Simulation thread controller
 .. autoclass:: poap.controller.SimThreadController
    :members:
 
+Worker threads
+==============
+
+The multi-threaded controller employs a set of workers that are
+capable of managing concurrent function evaluations.  This does *not*
+provide parallelism on its own, but the worker threads can be used to
+manage parallelism by separate external processes.
+
+Worker thread base class
+------------------------
+
+.. autoclass:: poap.controller.BaseWorkerThread
+   :members:
+
+Basic worker thread
+-------------------
+
+.. autoclass:: poap.controller.BasicWorkerThread
+   :members:
+
+Process worker thread
+---------------------
+
+.. autoclass:: poap.controller.ProcessWorkerThread
+   :members:
 

@@ -6,10 +6,12 @@ POAP provides an event-driven framework for building and
 combining asynchronous optimization strategies.  A typical
 optimization code written with POAP might look like:
 
+.. code-block:: python
+
     from poap.strategy import FixedSampleStrategy
     from poap.strategy import CheckWorkStrategy
     from poap.controller import ThreadController
-    from popa.controller import BasicWorkerThread
+    from poap.controller import BasicWorkerThread
 
     # samples = list of sample points ...
 
@@ -19,9 +21,7 @@ optimization code written with POAP might look like:
 
     for i in range(NUM_WORKERS):
         t = BasicWorkerThread(controller, objective)
-        controller.add_worker(t)
-        t.setDaemon(True)
-        t.start()
+        controller.launch_worker(t)
 
     result = controller.run()
     print 'Best result: {0} at {1}.format(result.value, result.params)

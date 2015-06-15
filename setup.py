@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='POAP',
-    version='0.1.2',
+    version='0.1.3',
     author='David Bindel',
     author_email='bindel@cornell.edu',
     packages=['poap', 'poap.test'],
@@ -10,7 +10,7 @@ setup(
     url='http://pypi.python.org/pypi/POAP/',
     license='LICENSE.txt',
     description='Python Optimization Asynchronous Plumbing.',
-    long_description=open('README.txt').read(),
+    long_description=open('README.rst').read(),
     classifiers=[
         'Development Status :: 3 - Alpha',
         'Intended Audience :: Developers',
