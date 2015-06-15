@@ -10,3 +10,6 @@ upload: dist
 test-upload: dist
 	twine upload -r test dist/*
 
+clean:
+	rm -rf dist
+	rm -rf build

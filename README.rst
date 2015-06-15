@@ -24,7 +24,7 @@ optimization code written with POAP might look like:
         controller.launch_worker(t)
 
     result = controller.run()
-    print 'Best result: {0} at {1}.format(result.value, result.params)
+    print 'Best result: {0} at {1}'.format(result.value, result.params)
 
 The basic ingredients are a controller capable of asking workers to
 run function evaluations and a strategy for choosing where to sample.
