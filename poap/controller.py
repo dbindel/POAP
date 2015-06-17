@@ -32,6 +32,10 @@ class Controller(object):
         self.feval_callbacks = []
         self.term_callbacks = []
 
+    def ping(self):
+        "Tell controller to consult strategies when possible (if asynchronous)"
+        pass
+    
     def can_work(self):
         "Return whether we can currently perform work."
         return True
@@ -145,6 +149,10 @@ class ThreadController(Controller):
         self.workers = Queue.Queue()
         self.messages = Queue.Queue()
         self.io_lock = threading.Lock()
+
+    def ping(self):
+        "Tell controller to consult strategies when possible"
+        self.add_message()
 
     def lprint(self, *args):
         "Locking I/O."

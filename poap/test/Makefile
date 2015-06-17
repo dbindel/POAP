@@ -5,6 +5,7 @@ dummy_sim: dummy_sim.c
 
 .PHONY: test
 test: dummy_sim
+	python test_input_strategy.py
 	python test_coroutine_strategy.py
 	python test_fixed_strategy.py
 	python test_maxterm_strategy.py

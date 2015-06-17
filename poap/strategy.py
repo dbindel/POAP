@@ -11,6 +11,7 @@ except ImportError:
 
 import threading
 import numpy
+from collections import deque
 
 
 class Proposal(object):
@@ -624,3 +625,40 @@ class MaxEvalStrategy(object):
             return Proposal('terminate')
         else:
             return None
+
+
+class InputStrategy(object):
+    """Insert requests from the outside world (e.g. from a GUI)."""
+
+    def __init__(self, controller, strategy):
+        self.controller = controller
+        self.strategy = strategy
+        self.proposals = deque([])
+
+    def terminate(self):
+        "Request termination of the optimization"
+        self.proposals.append(Proposal('terminate'))
+        self.controller.ping()
+
+    def kill(self, record):
+        "Request a function evaluation be killed"
+        self.proposals.append(Proposal('kill', record))
+        self.controller.ping()
+
+    def eval(self, params, retry=True):
+        "Request a new function evaluation"
+        proposal = Proposal('eval', params)
+        if retry:
+            proposal.add_callback(self._on_reply)
+        self.proposals.append(proposal)
+        self.controller.ping()
+
+    def _on_reply(self, proposal):
+        "Re-try a function evaluation if rejected"
+        if not proposal.accepted:
+            self.eval(params, proposal.args, True)
+
+    def propose_action(self):
+        if self.proposals:
+            return self.proposals.popleft()
+        return self.strategy.propose_action()
