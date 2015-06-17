@@ -149,7 +149,7 @@ class ThreadController(Controller):
     def lprint(self, *args):
         "Locking I/O."
         self.io_lock.acquire()
-        print(*args)
+        print("{0}".format(*args))
         self.io_lock.release()
 
     def add_timer(self, timeout, callback):
