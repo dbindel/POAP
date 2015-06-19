@@ -231,8 +231,9 @@ class ThreadController(Controller):
                 return self.best_point()
             elif proposal.action == 'eval' and self.can_work():
                 self._submit_work(proposal)
-            elif proposal.action == 'kill' and not proposal.record.is_done():
-                proposal.worker.kill(proposal.record)
+            elif proposal.action == 'kill' and not proposal.args[0].is_done():
+                record = proposal.args[0]
+                record.worker.kill(record)
             else:
                 proposal.reject()
 
@@ -412,7 +413,7 @@ class SimTeamController(Controller):
 
     def kill_work(self, proposal):
         "Submit a kill event."
-        record = proposal.record
+        record = proposal.args[0]
 
         def event():
             """Closure for canceling a function evaluation
@@ -446,7 +447,7 @@ class SimTeamController(Controller):
                 return self.best_point()
             elif proposal.action == 'eval' and self.can_work():
                 self.submit_work(proposal)
-            elif proposal.action == 'kill' and not proposal.record.is_done():
+            elif proposal.action == 'kill' and not proposal.args[0].is_done():
                 self.kill_work(proposal)
             else:
                 proposal.reject()
@@ -498,46 +499,3 @@ class Monitor(object):
     def on_terminate(self):
         "Handle termination."
         pass
-
-
-class ChaosMonkey(Monitor):
-    """Randomly kill running function evaluations."""
-
-    def __init__(self, controller, logger=None, mtbf=1):
-        """Release the chaos monkey!
-
-        Args:
-            controller: The controller whose fevals we will kill
-            mtbf: Mean time between failure (assume Poisson process)
-        """
-        super(ChaosMonkey, self).__init__(controller)
-        self.running_fevals = []
-        self.lam = 1.0/mtbf
-        self.logger = logger
-        controller.add_timer(random.expovariate(self.lam), self.on_timer)
-
-    def log(self, msg):
-        "Write message to the logger."
-        if self.logger is not None:
-            self.logger(msg)
-
-    def on_new_feval(self, record):
-        "On every feval, add a callback."
-        record.chaos_target = False
-
-    def on_update(self, record):
-        "On every completion, remove from list"
-        if record.status == 'running' and not record.chaos_target:
-            record.chaos_target = True
-            self.running_fevals.append(record)
-        elif record.is_done() and record.chaos_target:
-            record.chaos_target = False
-            self.running_fevals.remove(record)
-
-    def on_timer(self):
-        if self.running_fevals:
-            record = self.running_fevals.pop()
-            record.chaos_target = False
-            record.worker.kill(record)
-            self.log("Monkey attack! {0}".format(record.params))
-        self.controller.add_timer(random.expovariate(self.lam), self.on_timer)
