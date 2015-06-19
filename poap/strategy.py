@@ -138,6 +138,43 @@ class EvalRecord(object):
                 self.status == 'cancelled')
 
 
+class BaseStrategy(object):
+    """Base strategy class.
+
+    The BaseStrategy class provides some support for the basic callback
+    flow common to most strategies: handlers are called when an evaluation
+    is accepted or rejected; and if an evaluation proposal is accepted,
+    the record is decorated so that an on_update handler is called for
+    subsequent updates.
+    """
+
+    def propose_eval(self, x):
+        "Generate an eval proposal with a callback to on_reply."
+        proposal = Proposal('eval', x)
+        proposal.add_callback(self.on_reply)
+        return proposal
+
+    def on_reply(self, proposal):
+        "Default handling of proposal."
+        if proposal.accepted:
+            proposal.record.add_callback(self.on_update)
+            self.on_reply_accept(self, proposal)
+        else:
+            self.on_reply_reject(self, proposal)
+
+    def on_reply_accept(self, proposal):
+        "Handle proposal acceptance."
+        pass
+
+    def on_reply_reject(self, proposal):
+        "Handle proposal rejection."
+        pass
+
+    def on_update(self, record):
+        "Process update."
+        pass
+
+
 class RetryStrategy(object):
     """Manage proposal resubmissions for another strategy.
 
