@@ -146,11 +146,14 @@ class BaseStrategy(object):
     is accepted or rejected; and if an evaluation proposal is accepted,
     the record is decorated so that an on_update handler is called for
     subsequent updates.
+
+    Note that not all strategies follow this pattern -- the only requirement
+    for a strategy is that it implement propose_action.
     """
 
-    def propose_eval(self, x):
+    def propose_eval(self, *args):
         "Generate an eval proposal with a callback to on_reply."
-        proposal = Proposal('eval', x)
+        proposal = Proposal('eval', *args)
         proposal.add_callback(self.on_reply)
         return proposal
 
@@ -237,7 +240,7 @@ class RetryStrategy(BaseStrategy):
     def propose_action(self):
         "Propose an action."
         if self.pointq:
-            self.num_pending = self.num_pending + 1
+            self.num_pending += 1
             x, tag = self.pointq.pop()
             proposal = self.propose_eval(x)
             self._set_tag(proposal, tag)
@@ -250,17 +253,17 @@ class RetryStrategy(BaseStrategy):
 
     def on_reply_reject(self, proposal):
         "Process a response to a proposal."
-        self.num_pending = self.num_pending - 1
+        self.num_pending -= 1
         self.pointq.append((proposal.args[0], self._get_tag(proposal)))
 
     def on_update(self, record):
         "Process a response to a record update."
         if record.status == 'completed':
-            self.num_pending = self.num_pending - 1
+            self.num_pending -= 1
             if hasattr(self.strategy, "on_complete"):
                 self.strategy.on_complete(record)
         elif record.is_done():
-            self.num_pending = self.num_pending - 1
+            self.num_pending -= 1
             self.pointq.append((record.params, self._get_tag(record)))
         else:
             if hasattr(self.strategy, "on_update"):
@@ -310,7 +313,7 @@ class FixedSampleStrategy(BaseStrategy):
 
     def on_reply_accept(self, proposal):
         "Handle a proposal acceptance."
-        self.outstanding = self.outstanding + 1
+        self.outstanding += 1
 
     def on_reply_reject(self, proposal):
         "Handle a proposal rejection."
@@ -326,7 +329,7 @@ class FixedSampleStrategy(BaseStrategy):
         self.proposed_points.append(*record.params)
 
 
-class CoroutineStrategy(object):
+class CoroutineStrategy(BaseStrategy):
     """Event-driven to serial adapter using coroutines.
 
     The coroutine strategy runs a standard sequential optimization algorithm
@@ -346,47 +349,36 @@ class CoroutineStrategy(object):
         self.coroutine = coroutine
         self.done = False
         try:
-            self.proposal = Proposal('eval', next(self.coroutine))
+            self.proposal = self.propose_eval(next(self.coroutine))
         except StopIteration:
             self.proposal = Proposal('terminate')
-
-    def add_proposal_callback(self, proposal):
-        "Add a reply callback for eval proposals."
-        if proposal.action == 'eval':
-            proposal.add_callback(self.on_reply)
-        return proposal
 
     def next_request(self, value):
         "Request next function evaluation."
         try:
-            self.proposal = Proposal('eval', self.coroutine.send(value))
+            self.proposal = self.propose_eval(self.coroutine.send(value))
         except StopIteration:
             self.proposal = Proposal('terminate')
 
     def propose_action(self):
         "If we have a pending request, propose it."
-        proposal = None
-        if self.proposal:
-            proposal = self.add_proposal_callback(self.proposal)
-            self.proposal = None
+        proposal, self.proposal = self.proposal, None
         return proposal
 
-    def on_reply(self, proposal):
-        "If proposal accepted, wait for result; else, propose again."
-        if proposal.accepted:
-            proposal.record.add_callback(self.on_update)
-        else:
-            self.proposal = proposal.copy()
+    def on_reply_reject(self, proposal):
+        "If proposal rejected, propose again."
+        self.proposal = self.proposal_copy(proposal)
 
-    def on_update(self, record):
-        "Return or re-request on completion or cancellation."
-        if record.status == 'completed':
-            self.next_request(record.value)
-        elif record.is_done():
-            self.proposal = Proposal('eval', *record.params)
+    def on_complete(self, record):
+        "Return point to coroutine"
+        self.next_request(record.value)
+
+    def on_kill(self, record):
+        "Re-request point"
+        self.proposal = self.propose_eval(*record.params)
 
 
-class CoroutineBatchStrategy(object):
+class CoroutineBatchStrategy(BaseStrategy):
     """Event-driven to synchronous parallel adapter using coroutines.
 
     The coroutine strategy runs a synchronous parallel optimization
@@ -431,40 +423,40 @@ class CoroutineBatchStrategy(object):
             if not self.pointq and self.num_pending == 0:
                 self.start_batch(self.coroutine.send(self.results))
             if self.pointq:
-                self.num_pending = self.num_pending + 1
+                self.num_pending += 1
                 batch_id, x = self.pointq.pop()
-                proposal = Proposal('eval', x)
+                proposal = self.propose_eval(x)
                 proposal.batch_id = batch_id
-                proposal.add_callback(self.on_reply)
                 return proposal
             return None
         except StopIteration:
             return Proposal('terminate')
 
-    def on_reply(self, proposal):
-        "If proposal accepted, wait for result; else, propose again."
-        if proposal.accepted:
-            if self.on_feval_start:
-                self.on_feval_start(proposal.record)
-            proposal.record.add_callback(self.on_update)
-            proposal.record.batch_id = proposal.batch_id
-        else:
-            self.num_pending = self.num_pending - 1
-            self.pointq.append((proposal.batch_id, proposal.args[0]))
+    def on_reply_accept(self, proposal):
+        "If proposal accepted, wait for result."
+        if self.on_feval_start:
+            self.on_feval_start(proposal.record)
+        proposal.record.batch_id = proposal.batch_id
 
-    def on_update(self, record):
+    def on_reply_reject(self, proposal):
+        "Propose again."
+        self.num_pending -= 1
+        self.pointq.append((proposal.batch_id, proposal.args[0]))
+
+    def on_complete(self, record):
         "Return or re-request on completion or cancellation."
-        if record.status == 'completed':
-            self.num_pending = self.num_pending - 1
-            self.results[record.batch_id] = record
-            if self.on_feval_done:
-                self.on_feval_done(record)
-        elif record.is_done():
-            self.num_pending = self.num_pending - 1
-            self.pointq.append((record.batch_id, record.params))
+        self.num_pending -= 1
+        self.results[record.batch_id] = record
+        if self.on_feval_done:
+            self.on_feval_done(record)
+
+    def on_kill(self, record):
+        "Return or re-request on completion or cancellation."
+        self.num_pending -= 1
+        self.pointq.append((record.batch_id, record.params))
 
 
-class ThreadStrategy(object):
+class ThreadStrategy(BaseStrategy):
     """Event-driven to serial adapter using threads.
 
     The thread strategy runs a standard sequential optimization algorithm
@@ -496,34 +488,23 @@ class ThreadStrategy(object):
         self.thread.start()
         self.proposal = self.proposalq.get()
 
-    def add_proposal_callback(self, proposal):
-        "Add a reply callback for eval proposals."
-        if proposal.action == 'eval':
-            proposal.add_callback(self.on_reply)
-        return proposal
-
     def propose_action(self):
         "If we have a pending request, propose it."
-        proposal = None
-        if self.proposal:
-            proposal = self.add_proposal_callback(self.proposal)
-            self.proposal = None
+        proposal, self.proposal = self.proposal, None
         return proposal
 
-    def on_reply(self, proposal):
-        "If proposal accepted, wait for result; else, propose again."
-        if proposal.accepted:
-            proposal.record.add_callback(self.on_update)
-        else:
-            self.proposal = proposal.copy()
+    def on_reply_reject(self, proposal):
+        "Propose again."
+        self.proposal = self.proposal_copy(proposal)
 
-    def on_update(self, record):
-        "Return or re-request on completion or cancellation."
-        if record.status == 'completed':
-            self.valueq.put(record.value)
-            self.proposal = self.proposalq.get()
-        elif record.is_done():
-            self.proposal = Proposal('eval', *record.params)
+    def on_complete(self, record):
+        "Return on completion"
+        self.valueq.put(record.value)
+        self.proposal = self.proposalq.get()
+
+    def on_kill(self, record):
+        "Re-request on cancellation."
+        self.proposal = self.propose_eval(*record.params)
 
 
 class OptimizerThread(threading.Thread):
@@ -536,9 +517,9 @@ class OptimizerThread(threading.Thread):
         self.proposalq = strategy.proposalq
         self.valueq = strategy.valueq
 
-    def objective(self, args):
+    def objective(self, *args):
         "Provide function call interface to ThreadStrategy."
-        self.proposalq.put(Proposal('eval', args))
+        self.proposalq.put(self.strategy.propose_eval(*args))
         return self.valueq.get()
 
     def run(self):
@@ -636,7 +617,7 @@ class MultiStartStrategy(object):
             elif proposal.action == 'kill':
                 chosen_proposal = proposal
             elif proposal.action == 'terminate':
-                terminate_votes = terminate_votes + 1
+                terminate_votes += 1
         for proposal in proposals:
             if proposal is not None and proposal != chosen_proposal:
                 proposal.reject()
@@ -671,7 +652,7 @@ class MaxEvalStrategy(object):
     def on_update(self, record):
         "On every completion, increment the counter."
         if record.status == 'completed':
-            self.counter = self.counter + 1
+            self.counter += 1
 
     def propose_action(self):
         "Propose termination once the eval counter is high enough."
