@@ -1,3 +1,11 @@
+v0.1.5, 2015-06-19
+        Added try/finally around controller run() to ensure term callbacks.
+        Factored BaseStrategy from several strategies.
+        Moved ChaosMonkey to ChasoMonkeyStrategy
+        Added add_timer interface to Controller base class
+        Added Monitor base class
+        Fixed kill proposal handling
+
 v0.1.4, 2015-06-17
 	Corrected Python 2/3 incompatibility.
 	Added InputStrategy and tester (and Controller.ping() method)
