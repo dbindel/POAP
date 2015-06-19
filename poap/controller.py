@@ -10,7 +10,6 @@ except ImportError:
     import queue as Queue
 
 import heapq
-import random
 import threading
 from poap.strategy import EvalRecord
 
