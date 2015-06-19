@@ -165,9 +165,9 @@ class BaseStrategy(object):
         "Default handling of proposal."
         if proposal.accepted:
             proposal.record.add_callback(self.on_update)
-            self.on_reply_accept(self, proposal)
+            self.on_reply_accept(proposal)
         else:
-            self.on_reply_reject(self, proposal)
+            self.on_reply_reject(proposal)
 
     def on_reply_accept(self, proposal):
         "Handle proposal acceptance."
@@ -179,10 +179,21 @@ class BaseStrategy(object):
 
     def on_update(self, record):
         "Process update."
+        if record.status == 'completed':
+            self.on_complete(record)
+        elif record.is_done():
+            self.on_kill(record)
+
+    def on_complete(self, record):
+        "Process completed record."
+        pass
+
+    def on_kill(self, record):
+        "Process killed or cancelled record."
         pass
 
 
-class RetryStrategy(object):
+class RetryStrategy(BaseStrategy):
     """Manage proposal resubmissions for another strategy.
 
     The RetryStrategy keeps a queue of points that another strategy
@@ -228,20 +239,19 @@ class RetryStrategy(object):
         if self.pointq:
             self.num_pending = self.num_pending + 1
             x, tag = self.pointq.pop()
-            proposal = Proposal('eval', x)
-            proposal.add_callback(self.on_reply)
+            proposal = self.propose_eval(x)
             self._set_tag(proposal, tag)
             return proposal
         return None
 
-    def on_reply(self, proposal):
+    def on_reply_accept(self, proposal):
         "Process a response to a proposal."
-        if proposal.accepted:
-            proposal.record.add_callback(self.on_update)
-            self._set_tag(proposal.record, self._get_tag(proposal))
-        else:
-            self.num_pending = self.num_pending - 1
-            self.pointq.append((proposal.args[0], self._get_tag(proposal)))
+        self._set_tag(proposal.record, self._get_tag(proposal))
+
+    def on_reply_reject(self, proposal):
+        "Process a response to a proposal."
+        self.num_pending = self.num_pending - 1
+        self.pointq.append((proposal.args[0], self._get_tag(proposal)))
 
     def on_update(self, record):
         "Process a response to a record update."
@@ -257,7 +267,7 @@ class RetryStrategy(object):
                 self.strategy.on_update(record)
 
 
-class FixedSampleStrategy(object):
+class FixedSampleStrategy(BaseStrategy):
     """Sample at a fixed set of points.
 
     The fixed sampling strategy is appropriate for any non-adaptive
@@ -292,29 +302,28 @@ class FixedSampleStrategy(object):
                 point = next(self.point_generator)
                 self.proposed_points.append(point)
             point = self.proposed_points.pop()
-            proposal = Proposal('eval', point)
-            proposal.add_callback(self.on_reply)
-            return proposal
+            return self.propose_eval(point)
         except StopIteration:
             if self.outstanding == 0:
                 return Proposal('terminate')
             return None
 
-    def on_reply(self, proposal):
-        "Handle a proposal reply."
-        if proposal.accepted:
-            self.outstanding = self.outstanding + 1
-            proposal.record.add_callback(self.on_update)
-        else:
-            self.proposed_points.append(proposal.args[0])
+    def on_reply_accept(self, proposal):
+        "Handle a proposal acceptance."
+        self.outstanding = self.outstanding + 1
 
-    def on_update(self, record):
+    def on_reply_reject(self, proposal):
+        "Handle a proposal rejection."
+        self.proposed_points.append(proposal.args[0])
+
+    def on_complete(self, record):
+        "Update counts on successful completion"
+        self.outstanding -= 1
+
+    def on_kill(self, record):
         "Re-request evaluation on cancellation."
-        if record.status == 'completed':
-            self.outstanding = self.outstanding-1
-        elif record.is_done():
-            self.outstanding = self.outstanding-1
-            self.proposed_points.append(*record.params)
+        self.outstanding -= 1
+        self.proposed_points.append(*record.params)
 
 
 class CoroutineStrategy(object):
