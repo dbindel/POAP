@@ -47,7 +47,7 @@ def main():
         controller.launch_worker(DummySim(controller))
 
     controller.add_timer(1, monitor)
-    monkey = ChaosMonkey(controller, mtbf=3)
+    monkey = ChaosMonkey(controller, logger=controller.lprint, mtbf=3)
     result = controller.run()
     print('Final', result.value, result.params)
 

@@ -32,10 +32,15 @@ class Controller(object):
         self.feval_callbacks = []
         self.term_callbacks = []
 
+    def add_timer(self, timeout, callback):
+        "Add a task to be executed after a timeout (e.g. for monitoring)."
+        thread = threading.Timer(timeout, callback)
+        thread.start()
+
     def ping(self):
         "Tell controller to consult strategies when possible (if asynchronous)"
         pass
-    
+
     def can_work(self):
         "Return whether we can currently perform work."
         return True
@@ -95,7 +100,7 @@ class SerialController(Controller):
         Controller.__init__(self)
         self.objective = objective
 
-    def run(self):
+    def _run(self):
         "Run the optimization and return the best value."
         while True:
             proposal = self.strategy.propose_action()
@@ -103,7 +108,6 @@ class SerialController(Controller):
                 raise NameError('No proposed action')
             if proposal.action == 'terminate':
                 proposal.accept()
-                self.call_term_callbacks()
                 return self.best_point()
             elif proposal.action == 'eval':
                 proposal.record = self.new_feval(proposal.args)
@@ -114,6 +118,13 @@ class SerialController(Controller):
                 proposal.reject()
             else:
                 proposal.reject()
+
+    def run(self):
+        "Run the optimization and return the best value."
+        try:
+            return self._run()
+        finally:
+            self.call_term_callbacks()
 
 
 class ThreadController(Controller):
@@ -208,7 +219,7 @@ class ThreadController(Controller):
         while not self.messages.empty():
             self._run_message()
 
-    def run(self):
+    def _run(self):
         "Run the optimization and return the best value."
         while True:
             self._run_queued_messages()
@@ -217,7 +228,6 @@ class ThreadController(Controller):
                 self._run_message()
             elif proposal.action == 'terminate':
                 proposal.accept()
-                self.call_term_callbacks()
                 return self.best_point()
             elif proposal.action == 'eval' and self.can_work():
                 self._submit_work(proposal)
@@ -225,6 +235,12 @@ class ThreadController(Controller):
                 proposal.worker.kill(proposal.record)
             else:
                 proposal.reject()
+
+    def run(self):
+        try:
+            return self._run()
+        finally:
+            self.call_term_callbacks()
 
 
 class BaseWorkerThread(threading.Thread):
@@ -353,45 +369,6 @@ class ProcessWorkerThread(BaseWorkerThread):
         self.join()
 
 
-class ChaosMonkey(object):
-    """Randomly kill running function evaluations."""
-
-    def __init__(self, controller, mtbf=1):
-        """Release the chaos monkey!
-
-        Args:
-            controller: The controller whose fevals we will kill
-            mtbf: Mean time between failure (assume Poisson process)
-        """
-        self.controller = controller
-        self.running_fevals = []
-        self.lam = 1.0/mtbf
-        controller.add_feval_callback(self.on_new_feval)
-        controller.add_timer(random.expovariate(self.lam), self.on_timer)
-
-    def on_new_feval(self, record):
-        "On every feval, add a callback."
-        record.chaos_target = False
-        record.add_callback(self.on_update)
-
-    def on_update(self, record):
-        "On every completion, remove from list"
-        if record.status == 'running' and not record.chaos_target:
-            record.chaos_target = True
-            self.running_fevals.append(record)
-        elif record.is_done() and record.chaos_target:
-            record.chaos_target = False
-            self.running_fevals.remove(record)
-
-    def on_timer(self):
-        if self.running_fevals:
-            record = self.running_fevals.pop()
-            record.chaos_target = False
-            record.worker.kill(record)
-            self.controller.lprint("Monkey attack! {0}".format(record.params))
-        self.controller.add_timer(random.expovariate(self.lam), self.on_timer)
-
-
 class SimTeamController(Controller):
     """Simulated parallel optimization controller.
 
@@ -458,7 +435,7 @@ class SimTeamController(Controller):
         "Add new timer event."
         heapq.heappush(self.time_events, (self.time + timeout, event))
 
-    def run(self):
+    def _run(self):
         "Run the optimization and return the best value."
         while True:
             proposal = self.strategy.propose_action()
@@ -466,7 +443,6 @@ class SimTeamController(Controller):
                 self.advance_time()
             elif proposal.action == 'terminate':
                 proposal.accept()
-                self.call_term_callbacks()
                 return self.best_point()
             elif proposal.action == 'eval' and self.can_work():
                 self.submit_work(proposal)
@@ -475,3 +451,93 @@ class SimTeamController(Controller):
             else:
                 proposal.reject()
                 self.advance_time()
+
+    def run(self):
+        "Run the optimization and return the best value."
+        try:
+            return self._run()
+        finally:
+            self.call_term_callbacks()
+
+
+class Monitor(object):
+    """Monitor events observed by a controller.
+
+    The monitor object provides hooks to monitor the progress of an
+    optimization run by a controller.  Users should inherit from Monitor
+    and add custom version of the methods
+
+        on_new_feval(self, record)
+        on_update(self, record)
+        on_terminate(self)
+    """
+
+    def __init__(self, controller):
+        """Initialize the monitor.
+
+        Args:
+            controller: The controller whose fevals we will monitor
+        """
+        self.controller = controller
+        controller.add_feval_callback(self._add_on_update)
+        controller.add_feval_callback(self.on_new_feval)
+        controller.add_term_callback(self.on_terminate)
+
+    def _add_on_update(self, record):
+        "Internal handler -- add on_update callback to all new fevals."
+        record.add_callback(self.on_update)
+
+    def on_new_feval(self, record):
+        "Handle new function evaluation request."
+        pass
+
+    def on_update(self, record):
+        "Handle function evaluation update."
+        pass
+
+    def on_terminate(self):
+        "Handle termination."
+        pass
+
+
+class ChaosMonkey(Monitor):
+    """Randomly kill running function evaluations."""
+
+    def __init__(self, controller, logger=None, mtbf=1):
+        """Release the chaos monkey!
+
+        Args:
+            controller: The controller whose fevals we will kill
+            mtbf: Mean time between failure (assume Poisson process)
+        """
+        super(ChaosMonkey, self).__init__(controller)
+        self.running_fevals = []
+        self.lam = 1.0/mtbf
+        self.logger = logger
+        controller.add_timer(random.expovariate(self.lam), self.on_timer)
+
+    def log(self, msg):
+        "Write message to the logger."
+        if self.logger is not None:
+            self.logger(msg)
+
+    def on_new_feval(self, record):
+        "On every feval, add a callback."
+        record.chaos_target = False
+
+    def on_update(self, record):
+        "On every completion, remove from list"
+        if record.status == 'running' and not record.chaos_target:
+            record.chaos_target = True
+            self.running_fevals.append(record)
+        elif record.is_done() and record.chaos_target:
+            record.chaos_target = False
+            self.running_fevals.remove(record)
+
+    def on_timer(self):
+        if self.running_fevals:
+            record = self.running_fevals.pop()
+            record.chaos_target = False
+            record.worker.kill(record)
+            self.log("Monkey attack! {0}".format(record.params))
+        self.controller.add_timer(random.expovariate(self.lam), self.on_timer)
