@@ -188,10 +188,11 @@ class ThreadController(Controller):
         self.workers.put(worker)
         self.add_message()
 
-    def launch_worker(self, worker):
+    def launch_worker(self, worker, daemon=False):
         "Launch and take ownership of a new worker thread."
         self.add_worker(worker)
         self.add_term_callback(worker.terminate)
+        worker.daemon = worker.daemon or daemon
         worker.start()
 
     def can_work(self):
