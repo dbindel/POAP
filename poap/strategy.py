@@ -11,6 +11,7 @@ except ImportError:
 
 import threading
 import numpy
+import random
 from collections import deque
 
 
@@ -662,3 +663,69 @@ class InputStrategy(object):
         if self.proposals:
             return self.proposals.popleft()
         return self.strategy.propose_action()
+
+
+class ChaosMonkeyStrategy(object):
+    """Randomly kill running function evaluations.
+
+    The ChaosMonkeyStrategy kills function evaluations at random from
+    among all active function evaluations.  Attacks are associated
+    with a Poisson process where the mean time between failures is
+    specified at startup.  Useful mostly for testing the resilience of
+    strategies to premature termination of their evaluations.  The
+    controller may decide to ignore the proposed kill actions, in
+    which case the monkey's attacks are ultimately futile.
+    """
+
+    def __init__(self, controller, strategy, logger=None, mtbf=1):
+        """Release the chaos monkey!
+
+        Args:
+            controller: The controller whose fevals we will kill
+            strategy: Parent strategy
+            mtbf: Mean time between failure (assume Poisson process)
+        """
+        self.controller = controller
+        self.strategy = strategy
+        self.running_fevals = []
+        self.lam = 1.0/mtbf
+        self.logger = logger
+        self.target = None
+        controller.add_feval_callback(self.on_new_feval)
+        controller.add_timer(random.expovariate(self.lam), self.on_timer)
+
+    def log(self, msg):
+        "Write message to the logger."
+        if self.logger is not None:
+            self.logger(msg)
+
+    def on_new_feval(self, record):
+        "On every feval, add a callback."
+        record.chaos_target = False
+        record.add_callback(self.on_update)
+
+    def on_update(self, record):
+        "On every completion, remove from list"
+        if record.status == 'running' and not record.chaos_target:
+            record.chaos_target = True
+            self.running_fevals.append(record)
+        elif record.is_done() and record.chaos_target:
+            record.chaos_target = False
+            self.running_fevals.remove(record)
+
+    def on_timer(self):
+        if self.running_fevals:
+            record = self.running_fevals.pop()
+            record.chaos_target = False
+            self.target = record
+            self.controller.ping()
+        self.controller.add_timer(random.expovariate(self.lam), self.on_timer)
+
+    def propose_action(self):
+        if self.target:
+            self.log("Monkey attack! {0}".format(self.target.params))
+            proposal = Proposal('kill', self.target)
+            self.target = None
+        else:
+            proposal = self.strategy.propose_action()
+        return proposal

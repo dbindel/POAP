@@ -7,8 +7,8 @@ import random
 import subprocess
 from poap.strategy import FixedSampleStrategy
 from poap.strategy import CheckWorkerStrategy
+from poap.strategy import ChaosMonkeyStrategy
 from poap.controller import ThreadController
-from poap.controller import ChaosMonkey
 from poap.controller import ProcessWorkerThread
 
 
@@ -32,6 +32,8 @@ def main():
     controller = ThreadController()
     strategy = FixedSampleStrategy(samples)
     strategy = CheckWorkerStrategy(controller, strategy)
+    strategy = ChaosMonkeyStrategy(controller, strategy,
+                                   logger=controller.lprint, mtbf=3)
     controller.strategy = strategy
     
     def monitor():
@@ -47,7 +49,6 @@ def main():
         controller.launch_worker(DummySim(controller))
 
     controller.add_timer(1, monitor)
-    monkey = ChaosMonkey(controller, logger=controller.lprint, mtbf=3)
     result = controller.run()
     print('Final', result.value, result.params)
 
