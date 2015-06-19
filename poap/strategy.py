@@ -157,7 +157,7 @@ class BaseStrategy(object):
         proposal.add_callback(self.on_reply)
         return proposal
 
-    def proposal_copy(self):
+    def proposal_copy(self, proposal):
         "Copy a proposal and add back an on_reply callback."
         proposal = proposal.copy()
         if proposal.action == 'eval':
@@ -691,7 +691,7 @@ class InputStrategy(object):
     def _on_reply(self, proposal):
         "Re-try a function evaluation if rejected"
         if not proposal.accepted:
-            self.eval(params, proposal.args, True)
+            self.eval(proposal.args, True)
 
     def propose_action(self):
         if self.proposals:
