@@ -76,11 +76,14 @@ class EvalRecord(object):
     evaluation, and a list of callbacks.  The status may be pending,
     running, killed (deliberately), cancelled (due to a crash or
     failure) or completed.  Once the function evaluation is completed,
-    the value is stored as an attribute in the evaluation record.  The
-    evaluation record callbacks are triggered on any relevant event,
-    including not only status changes but also intermediate results.
-    The nature of these intermediate results (lower bounds, initial
-    estimates, etc) is somewhat application-dependent.
+    the value is stored as an attribute in the evaluation record.
+    Other information, such as gradients, Hessians, or function values
+    used to compute constraints, may also be stored in the record.
+
+    The evaluation record callbacks are triggered on any relevant
+    event, including not only status changes but also intermediate
+    results.  The nature of these intermediate results (lower bounds,
+    initial estimates, etc) is somewhat application-dependent.
 
     Attributes:
         params: Evaluation point for the function

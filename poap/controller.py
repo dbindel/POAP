@@ -44,11 +44,14 @@ class Controller(object):
         "Return whether we can currently perform work."
         return True
 
-    def best_point(self):
+    def best_point(self, merit=None):
         "Return the best point in the database."
         fcomplete = [f for f in self.fevals if f.status == 'completed']
+        if merit is None:
+            def merit(r):
+                return r.value
         if fcomplete:
-            return min(fcomplete, key=lambda x: x.value)
+            return min(fcomplete, key=merit)
 
     def new_feval(self, params, status='pending'):
         """Add a function evaluation record to the database.
@@ -99,7 +102,7 @@ class SerialController(Controller):
         Controller.__init__(self)
         self.objective = objective
 
-    def _run(self):
+    def _run(self, merit=None):
         "Run the optimization and return the best value."
         while True:
             proposal = self.strategy.propose_action()
@@ -107,21 +110,19 @@ class SerialController(Controller):
                 raise NameError('No proposed action')
             if proposal.action == 'terminate':
                 proposal.accept()
-                return self.best_point()
+                return self.best_point(merit)
             elif proposal.action == 'eval':
                 proposal.record = self.new_feval(proposal.args)
                 proposal.accept()
                 value = self.objective(*proposal.record.params)
                 proposal.record.complete(value)
-            elif proposal.action == 'kill':
-                proposal.reject()
             else:
                 proposal.reject()
 
-    def run(self):
+    def run(self, merit=None):
         "Run the optimization and return the best value."
         try:
-            return self._run()
+            return self._run(merit=merit)
         finally:
             self.call_term_callbacks()
 
@@ -219,7 +220,7 @@ class ThreadController(Controller):
         while not self.messages.empty():
             self._run_message()
 
-    def _run(self):
+    def _run(self, merit=None):
         "Run the optimization and return the best value."
         while True:
             self._run_queued_messages()
@@ -237,9 +238,9 @@ class ThreadController(Controller):
             else:
                 proposal.reject()
 
-    def run(self):
+    def run(self, merit=None):
         try:
-            return self._run()
+            return self._run(merit=merit)
         finally:
             self.call_term_callbacks()
 
@@ -436,7 +437,7 @@ class SimTeamController(Controller):
         "Add new timer event."
         heapq.heappush(self.time_events, (self.time + timeout, event))
 
-    def _run(self):
+    def _run(self, merit=None):
         "Run the optimization and return the best value."
         while True:
             proposal = self.strategy.propose_action()
@@ -444,7 +445,7 @@ class SimTeamController(Controller):
                 self.advance_time()
             elif proposal.action == 'terminate':
                 proposal.accept()
-                return self.best_point()
+                return self.best_point(merit=merit)
             elif proposal.action == 'eval' and self.can_work():
                 self.submit_work(proposal)
             elif proposal.action == 'kill' and not proposal.args[0].is_done():
@@ -453,10 +454,10 @@ class SimTeamController(Controller):
                 proposal.reject()
                 self.advance_time()
 
-    def run(self):
+    def run(self, merit=None):
         "Run the optimization and return the best value."
         try:
-            return self._run()
+            return self._run(merit=merit)
         finally:
             self.call_term_callbacks()
 
