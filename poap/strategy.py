@@ -160,15 +160,31 @@ class BaseStrategy(object):
         proposal.add_callback(self.on_reply)
         return proposal
 
+    def propose_kill(self, r):
+        "Generate a kill proposal with a callback to on_reply_kill."
+        proposal = Proposal('kill', r)
+        proposal.add_callback(self.on_kill_reply)
+        return proposal
+
+    def propose_terminate(self):
+        "Generate a terminate proposal with a callback to on_terminate."
+        proposal = Proposal('terminate')
+        proposal.add_callback(self.on_terminate_reply)
+        return proposal
+
     def proposal_copy(self, proposal):
         "Copy a proposal and add back an on_reply callback."
         proposal = proposal.copy()
         if proposal.action == 'eval':
             proposal.add_callback(self.on_reply)
+        elif proposal.action == 'kill':
+            proposal.add_callback(self.on_kill_reply)
+        elif proposal.action == 'terminate':
+            proposal.add_callback(self.on_terminate_reply)
         return proposal
 
     def on_reply(self, proposal):
-        "Default handling of proposal."
+        "Default handling of eval proposal."
         if proposal.accepted:
             proposal.record.add_callback(self.on_update)
             self.on_reply_accept(proposal)
@@ -180,6 +196,36 @@ class BaseStrategy(object):
         pass
 
     def on_reply_reject(self, proposal):
+        "Handle proposal rejection."
+        pass
+
+    def on_kill_reply(self, proposal):
+        "Default handling of kill proposal."
+        if proposal.accepted:
+            self.on_kill_reply_accept(proposal)
+        else:
+            self.on_kill_reply_reject(proposal)
+
+    def on_kill_reply_accept(self, proposal):
+        "Handle proposal acceptance."
+        pass
+
+    def on_kill_reply_reject(self, proposal):
+        "Handle proposal rejection."
+        pass
+
+    def on_terminate_reply(self, proposal):
+        "Default handling of terminate proposal."
+        if proposal.accepted:
+            self.on_terminate_reply_accept(proposal)
+        else:
+            self.on_terminate_reply_reject(proposal)
+
+    def on_terminate_reply_accept(self, proposal):
+        "Handle proposal acceptance."
+        pass
+
+    def on_terminate_reply_reject(self, proposal):
         "Handle proposal rejection."
         pass
 
@@ -344,24 +390,26 @@ class CoroutineStrategy(BaseStrategy):
 
     Attributes:
         coroutine: Optimizer coroutine
+        rvalue:    Function to map records to values
         proposal:  Proposal that the strategy is currently requesting.
     """
 
-    def __init__(self, coroutine):
+    def __init__(self, coroutine, rvalue=lambda r: r.value):
         "Initialize the strategy."
         self.coroutine = coroutine
+        self.rvalue = rvalue
         self.done = False
         try:
             self.proposal = self.propose_eval(next(self.coroutine))
         except StopIteration:
-            self.proposal = Proposal('terminate')
+            self.proposal = self.propose_terminate()
 
     def next_request(self, value):
         "Request next function evaluation."
         try:
             self.proposal = self.propose_eval(self.coroutine.send(value))
         except StopIteration:
-            self.proposal = Proposal('terminate')
+            self.proposal = self.propose_terminate()
 
     def propose_action(self):
         "If we have a pending request, propose it."
@@ -372,9 +420,13 @@ class CoroutineStrategy(BaseStrategy):
         "If proposal rejected, propose again."
         self.proposal = self.proposal_copy(proposal)
 
+    def on_terminate_reply_reject(self, proposal):
+        "If termination proposal rejected, propose again."
+        self.proposal = self.propose_terminate()
+
     def on_complete(self, record):
         "Return point to coroutine"
-        self.next_request(record.value)
+        self.next_request(self.rvalue(record))
 
     def on_kill(self, record):
         "Re-request point"
@@ -387,10 +439,10 @@ class CoroutineBatchStrategy(BaseStrategy):
     The coroutine strategy runs a synchronous parallel optimization
     algorithm in a Python coroutine, with which the strategy
     communicates via send/yield directives.  The optimization
-    coroutine yields batches of parameters at which it would like
-    function values; the strategy then requests the function
-    evaluation and returns the records associated with those function
-    evaluations when all have been completed.
+    coroutine yields batches of parameters (as lists) at which it
+    would like function values; the strategy then requests the
+    function evaluation and returns the records associated with those
+    function evaluations when all have been completed.
 
     Attributes:
         coroutine: Optimizer coroutine
@@ -399,10 +451,13 @@ class CoroutineBatchStrategy(BaseStrategy):
         num_pending: Number of in-flight proposals and evaluations
         pointq: Points that need to be proposed
         results: Completion records to be returned to the coroutine
+
     """
 
-    def __init__(self, coroutine, on_feval_start=None, on_feval_done=None):
+    def __init__(self, coroutine, rvalue=lambda r: r.value, 
+                 on_feval_start=None, on_feval_done=None):
         self.coroutine = coroutine
+        self.rvalue = rvalue
         self.on_feval_start = on_feval_start
         self.on_feval_done = on_feval_done
         self.num_pending = 0
@@ -416,9 +471,9 @@ class CoroutineBatchStrategy(BaseStrategy):
     def start_batch(self, xs):
         "Start evaluation of a batch of points."
         self.num_pending = 0
-        for ii in range(xs.shape[0]):
-            self.pointq.append((ii, numpy.asarray(xs[ii, :])))
-        self.results = [None for ii in range(xs.shape[0])]
+        for ii in range(len(xs)):
+            self.pointq.append((ii, xs[ii]))
+        self.results = [None for x in xs]
 
     def propose_action(self):
         "If we have a pending request, propose it."
@@ -449,14 +504,14 @@ class CoroutineBatchStrategy(BaseStrategy):
     def on_complete(self, record):
         "Return or re-request on completion or cancellation."
         self.num_pending -= 1
-        self.results[record.batch_id] = record
+        self.results[record.batch_id] = self.rvalue(record)
         if self.on_feval_done:
             self.on_feval_done(record)
 
     def on_kill(self, record):
         "Return or re-request on completion or cancellation."
         self.num_pending -= 1
-        self.pointq.append((record.batch_id, record.params))
+        self.pointq.append((record.batch_id, record.params[0]))
 
 
 class ThreadStrategy(BaseStrategy):
@@ -475,15 +530,17 @@ class ThreadStrategy(BaseStrategy):
         valueq:    Queue of function values from proposed actions.
         thread:    Thread in which the optimizer runs.
         proposal:  Proposal that the strategy is currently requesting.
+        rvalue:    Function mapping records to values
     """
 
-    def __init__(self, optimizer, daemon=True):
+    def __init__(self, optimizer, rvalue=lambda r: r.value, daemon=True):
         """Initialize the strategy.
 
         Args:
             optimizer: Optimizer function (takes objective as an argument)
         """
         self.optimizer = optimizer
+        self.rvalue = rvalue
         self.proposalq = Queue.Queue()
         self.valueq = Queue.Queue()
         self.thread = OptimizerThread(self)
@@ -502,7 +559,7 @@ class ThreadStrategy(BaseStrategy):
 
     def on_complete(self, record):
         "Return on completion"
-        self.valueq.put(record.value)
+        self.valueq.put(self.rvalue(record))
         self.proposal = self.proposalq.get()
 
     def on_kill(self, record):
