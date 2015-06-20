@@ -462,6 +462,143 @@ class SimTeamController(Controller):
             self.call_term_callbacks()
 
 
+class ScriptedController(Controller):
+    """Run a test script of actions from the controller.
+
+    The ScriptedController is meant to test that a strategy adheres
+    to an expected sequence of proposed actions in a given scenario.
+
+    Attributes:
+        strategy: Strategy for choosing optimization actions.
+        fevals: Database of function evaluations
+    """
+
+    def __init__(self):
+        Controller.__init__(self)
+        self._can_work = True
+
+    def add_timer(self):
+        "Add timer."
+        assert False, "Timers not available in ScriptedController."
+
+    def can_work(self):
+        "Return True if worker available."
+        return self._can_work
+
+    def proposal(self):
+        "Return strategy proposal."
+        return self.strategy.propose_action()
+
+    def set_worker(self, v):
+        "Set worker availability status."
+        self._can_work = v
+
+    def check_eval(self, proposal, args=None, pred=None):
+        """Check whether a proposal is an expected eval proposal.
+
+        Args:
+            proposal: proposal to check
+            args: expected evaluation args (if not None)
+            pred: test predicate to run on proposal (if not None)
+        """
+        assert proposal is not None, \
+            "Expected eval, got None"
+        assert proposal.action == 'eval', \
+            "Expected eval, got {0}".format(proposal.action)
+        if args is not None:
+            assert proposal.args == args, \
+                "Expected eval at {0}, got {1}".format(args, proposal.args)
+        if pred is not None:
+            assert pred(proposal), \
+                "Eval at {0} does not fit predicate".format(args)
+        return proposal
+
+    def check_kill(self, proposal, r=None):
+        """Check whether a proposal is an expected kill proposal.
+
+        Args:
+            proposal: proposal to check
+            r: record to be killed (or None if no check)
+        """
+        assert proposal is not None, \
+            "Expected eval, got None"
+        assert proposal.action == 'kill', \
+            "Expected kill, got {0}".format(proposal.action)
+        if r is not None:
+            assert proposal.args[0] == r, \
+                "Expected kill, but not at {0}".format(r.params)
+        return proposal
+
+    def check_terminate(self, proposal):
+        """Check whether a proposal is an expected terminate proposal.
+
+        Args:
+            proposal: proposal to check
+        """
+        assert proposal is not None, \
+            "Expected terminate, got None"
+        assert proposal.action == 'terminate', \
+            "Expected terminate, got {0}".format(proposal.action)
+        return proposal
+
+    def no_proposal(self):
+        "Assert that next proposed action is None."
+        assert self.proposal() is None
+
+    def accept_eval(self, args=None, pred=None):
+        """Assert next proposal is an eval, which we accept.
+
+        Args:
+            args: expected evaluation args (if not None)
+            pred: test predicate to run on proposal (if not None)
+
+        Returns:
+            proposal record
+        """
+        proposal = self.check_eval(self.proposal(), args=args, pred=pred)
+        proposal.record = self.new_feval(proposal.args)
+        proposal.accept()
+        return proposal.record
+
+    def accept_kill(self, r=None):
+        """Assert next proposal is a kill, which we accept.
+
+        Args:
+            r: record to be killed.
+        """
+        self.check_kill(self.proposal(), r).accept()
+
+    def accept_terminate(self):
+        "Assert next proposal is a kill, which we accept."
+        self.check_terminate(self.strategy.propose_action()).accept()
+
+    def reject_eval(self, args=None, pred=None):
+        """Assert next proposal is an eval, which we reject.
+
+        Args:
+            args: expected evaluation args (if not None)
+            pred: test predicate to run on proposal (if not None)
+        """
+        proposal = self.strategy.propose_action()
+        self.check_eval(proposal, args=args, pred=pred).reject()
+
+    def reject_kill(self, r=None):
+        """Assert next proposal is a kill, which we reject.
+
+        Args:
+            r: record to be killed.
+        """
+        self.check_kill(self.strategy.propose_action(), r).reject()
+
+    def reject_terminate(self):
+        "Assert next proposal is a terminate, which we reject."
+        self.check_terminate(self.strategy.propose_action()).reject()
+
+    def terminate(self):
+        "Terminate the script."
+        self.call_term_callbacks()
+
+
 class Monitor(object):
     """Monitor events observed by a controller.
 
