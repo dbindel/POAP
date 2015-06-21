@@ -433,6 +433,10 @@ class CoroutineBatchStrategy(BaseStrategy):
         self.pointq.append((record.batch_id, record.params[0]))
 
 
+class RunTerminatedException(Exception):
+    pass
+
+
 class PromiseStrategy(BaseStrategy):
     """Provides a promise-based asynchronous evaluation interface.
 
@@ -549,7 +553,7 @@ class PromiseStrategy(BaseStrategy):
         self.proposalq.put(self.propose_terminate())
 
     def _throw_terminate(self):
-        raise Exception("Run terminated")
+        raise RunTerminatedException()
 
 
 class ThreadStrategy(PromiseStrategy):
@@ -580,6 +584,8 @@ class ThreadStrategy(PromiseStrategy):
         def run(self):
             try:
                 self.optimizer(self.strategy)
+            except RunTerminatedException:
+                pass
             finally:
                 self.strategy.terminate()
 
