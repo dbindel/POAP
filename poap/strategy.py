@@ -342,18 +342,18 @@ class FixedSampleStrategy(BaseStrategy):
             for point in points:
                 yield point
         self.point_generator = point_generator()
-        self.resubmitter = RetryStrategy()
+        self.retry = RetryStrategy()
 
     def propose_action(self):
         "Propose an action based on outstanding points."
         try:
-            if self.resubmitter.empty():
+            if self.retry.empty():
                 point = next(self.point_generator)
                 proposal = self.propose_eval(point)
-                self.resubmitter.rput(proposal)
-            return self.resubmitter.get()
+                self.retry.rput(proposal)
+            return self.retry.get()
         except StopIteration:
-            if self.resubmitter.num_eval_outstanding == 0:
+            if self.retry.num_eval_outstanding == 0:
                 return self.propose_terminate()
 
 
@@ -368,33 +368,33 @@ class CoroutineStrategy(BaseStrategy):
     available.
 
     Attributes:
-        coroutine:   Optimizer coroutine
-        rvalue:      Function to map records to values
-        resubmitter: Resubmission manager
+        coroutine: Optimizer coroutine
+        rvalue:    Function to map records to values
+        retry:     Retry manager
     """
 
     def __init__(self, coroutine, rvalue=lambda r: r.value):
         "Initialize the strategy."
         self.coroutine = coroutine
         self.rvalue = rvalue
-        self.resubmitter = RetryStrategy()
+        self.retry = RetryStrategy()
         try:
-            self.resubmitter.rput(self.propose_eval(next(self.coroutine)))
+            self.retry.rput(self.propose_eval(next(self.coroutine)))
         except StopIteration:
-            self.resubmitter.rput(self.propose_terminate())
+            self.retry.rput(self.propose_terminate())
 
     def propose_action(self):
         "If we have a pending request, propose it."
-        if not self.resubmitter.empty():
-            return self.resubmitter.get()
+        if not self.retry.empty():
+            return self.retry.get()
 
     def on_complete(self, record):
         "Return point to coroutine"
         try:
             params = self.coroutine.send(self.rvalue(record))
-            self.resubmitter.rput(self.propose_eval(params))
+            self.retry.rput(self.propose_eval(params))
         except StopIteration:
-            self.resubmitter.rput(self.propose_terminate())
+            self.retry.rput(self.propose_terminate())
 
 
 class CoroutineBatchStrategy(BaseStrategy):
@@ -415,22 +415,14 @@ class CoroutineBatchStrategy(BaseStrategy):
 
     Attributes:
         coroutine: Optimizer coroutine
-        on_feval_start: Handler to be called on start of feval
-        on_feval_done: Handler to be called on successful feval completion
-        num_pending: Number of in-flight proposals and evaluations
-        pointq: Points that need to be proposed
-        results: Completion records to be returned to the coroutine
-
+        retry:     Retry strategy for in-flight actions
+        results:   Completion records to be returned to the coroutine
     """
 
-    def __init__(self, coroutine, rvalue=lambda r: r.value,
-                 on_feval_start=None, on_feval_done=None):
+    def __init__(self, coroutine, rvalue=lambda r: r.value):
         self.coroutine = coroutine
         self.rvalue = rvalue
-        self.on_feval_start = on_feval_start
-        self.on_feval_done = on_feval_done
-        self.num_pending = 0
-        self.pointq = []
+        self.retry = RetryStrategy()
         self.results = []
         try:
             self.start_batch(next(self.coroutine))
@@ -439,48 +431,29 @@ class CoroutineBatchStrategy(BaseStrategy):
 
     def start_batch(self, xs):
         "Start evaluation of a batch of points."
-        self.num_pending = 0
         for ii in range(len(xs)):
-            self.pointq.append((ii, xs[ii]))
+            proposal = self.propose_eval(xs[ii])
+            proposal.batch_id = ii
+            self.retry.rput(proposal)
         self.results = [None for x in xs]
 
     def propose_action(self):
         "If we have a pending request, propose it."
         try:
-            if not self.pointq and self.num_pending == 0:
+            if (self.retry.empty() and self.retry.num_eval_outstanding == 0):
                 self.start_batch(self.coroutine.send(self.results))
-            if self.pointq:
-                self.num_pending += 1
-                batch_id, x = self.pointq.pop()
-                proposal = self.propose_eval(x)
-                proposal.batch_id = batch_id
-                return proposal
-            return None
+            if not self.retry.empty():
+                return self.retry.get()
         except StopIteration:
-            return Proposal('terminate')
+            return self.propose_terminate()
 
     def on_reply_accept(self, proposal):
         "If proposal accepted, wait for result."
-        if self.on_feval_start:
-            self.on_feval_start(proposal.record)
         proposal.record.batch_id = proposal.batch_id
-
-    def on_reply_reject(self, proposal):
-        "Propose again."
-        self.num_pending -= 1
-        self.pointq.append((proposal.batch_id, proposal.args[0]))
 
     def on_complete(self, record):
         "Return or re-request on completion or cancellation."
-        self.num_pending -= 1
         self.results[record.batch_id] = self.rvalue(record)
-        if self.on_feval_done:
-            self.on_feval_done(record)
-
-    def on_kill(self, record):
-        "Return or re-request on completion or cancellation."
-        self.num_pending -= 1
-        self.pointq.append((record.batch_id, record.params[0]))
 
 
 class RunTerminatedException(Exception):

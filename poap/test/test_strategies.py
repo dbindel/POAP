@@ -135,22 +135,22 @@ def test_coroutine_batch3():
     c.strategy = CoroutineBatchStrategy(o)
 
     # Make trouble for batch [1,2]
-    c.reject_eval(args=(2,))
-    r1 = c.accept_eval(args=(2,))
     c.reject_eval(args=(1,))
-    r2 = c.accept_eval(args=(1,))
+    c.reject_eval(args=(2,))
+    r1 = c.accept_eval(args=(1,))
+    r2 = c.accept_eval(args=(2,))
     c.no_proposal()
     r1.kill()
-    c.accept_eval(args=(2,))
-    r2.complete(1)
+    c.accept_eval(args=(1,))
+    r2.complete(2)
     c.no_proposal()
-    r1.complete(2)
+    r1.complete(1)
 
     # Let batch [3,4] go through without incident
-    r = c.accept_eval(args=(4,))
-    r.complete(4)
     r = c.accept_eval(args=(3,))
     r.complete(3)
+    r = c.accept_eval(args=(4,))
+    r.complete(4)
 
     c.reject_terminate()
     c.reject_terminate()
