@@ -767,11 +767,13 @@ class InputStrategy(BaseStrategy):
     def __init__(self, controller, strategy):
         self.controller = controller
         self.strategy = strategy
-        self.proposals = deque([])
+        self.retry = RetryStrategy()
 
     def _propose(self, proposal, retry):
-        proposal.retry = retry
-        self.proposals.append(proposal)
+        if retry:
+            self.retry.rput(proposal)
+        else:
+            self.retry.put(proposal)
         self.controller.ping()
 
     def eval(self, params, retry=True):
@@ -786,33 +788,9 @@ class InputStrategy(BaseStrategy):
         "Request termination of the optimization"
         self._propose(self.propose_terminate(), retry)
 
-    def on_reply_accept(self, proposal):
-        "Copy over the retry flag"
-        proposal.record.retry = proposal.retry
-
-    def on_reply_reject(self, proposal):
-        "Retry if requested"
-        if proposal.retry:
-            self.eval(proposal.args[0], retry=True)
-
-    def on_kill(self, record):
-        "Retry if killed"
-        if record.retry:
-            self.eval(record.params[0], retry=True)
-
-    def on_kill_reply_reject(self, proposal):
-        "Retry kill if requested"
-        if proposal.retry:
-            self.kill(proposal.args[0], retry=True)
-
-    def on_terminate_reply_reject(self, proposal):
-        "Retry if requested"
-        if proposal.retry:
-            self.terminate(retry=True)
-
     def propose_action(self):
-        if self.proposals:
-            return self.proposals.popleft()
+        if not self.retry.empty():
+            return self.retry.get()
         return self.strategy.propose_action()
 
 
