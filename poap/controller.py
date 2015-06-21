@@ -485,9 +485,16 @@ class ScriptedController(Controller):
         "Return True if worker available."
         return self._can_work
 
-    def proposal(self):
-        "Return strategy proposal."
-        return self.strategy.propose_action()
+    def proposal(self, skip=False):
+        """Return strategy proposal.
+
+        Args:
+            skip: if True, skip over all None proposals
+        """
+        proposal = self.strategy.propose_action()
+        while skip and proposal is None:
+            proposal = self.strategy.propose_action()
+        return proposal
 
     def set_worker(self, v):
         "Set worker availability status."
@@ -545,54 +552,67 @@ class ScriptedController(Controller):
         "Assert that next proposed action is None."
         assert self.proposal() is None
 
-    def accept_eval(self, args=None, pred=None):
+    def accept_eval(self, args=None, pred=None, skip=False):
         """Assert next proposal is an eval, which we accept.
 
         Args:
             args: expected evaluation args (if not None)
             pred: test predicate to run on proposal (if not None)
+            skip: if True, skip over all None proposals
 
         Returns:
             proposal record
         """
-        proposal = self.check_eval(self.proposal(), args=args, pred=pred)
+        proposal = self.proposal(skip=skip)
+        proposal = self.check_eval(proposal, args=args, pred=pred)
         proposal.record = self.new_feval(proposal.args)
         proposal.accept()
         return proposal.record
 
-    def accept_kill(self, r=None):
+    def accept_kill(self, r=None, skip=False):
         """Assert next proposal is a kill, which we accept.
 
         Args:
             r: record to be killed.
+            skip: if True, skip over all None proposals
         """
-        self.check_kill(self.proposal(), r).accept()
+        self.check_kill(self.proposal(skip=skip), r).accept()
 
-    def accept_terminate(self):
-        "Assert next proposal is a kill, which we accept."
+    def accept_terminate(self, skip=False):
+        """Assert next proposal is a kill, which we accept.
+
+        Args:
+            skip: if True, skip over all None proposals
+        """
         self.check_terminate(self.strategy.propose_action()).accept()
 
-    def reject_eval(self, args=None, pred=None):
+    def reject_eval(self, args=None, pred=None, skip=False):
         """Assert next proposal is an eval, which we reject.
 
         Args:
             args: expected evaluation args (if not None)
             pred: test predicate to run on proposal (if not None)
+            skip: if True, skip over all None proposals
         """
-        proposal = self.strategy.propose_action()
+        proposal = self.proposal(skip=skip)
         self.check_eval(proposal, args=args, pred=pred).reject()
 
-    def reject_kill(self, r=None):
+    def reject_kill(self, r=None, skip=False):
         """Assert next proposal is a kill, which we reject.
 
         Args:
             r: record to be killed.
+            skip: if True, skip over all None proposals
         """
-        self.check_kill(self.strategy.propose_action(), r).reject()
+        self.check_kill(self.proposal(skip=skip), r).reject()
 
-    def reject_terminate(self):
-        "Assert next proposal is a terminate, which we reject."
-        self.check_terminate(self.strategy.propose_action()).reject()
+    def reject_terminate(self, skip=False):
+        """Assert next proposal is a terminate, which we reject.
+
+        Args:
+            skip: if True, skip over all None proposals
+        """
+        self.check_terminate(self.proposal(skip=skip)).reject()
 
     def terminate(self):
         "Terminate the script."
