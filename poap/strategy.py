@@ -756,6 +756,7 @@ class MultiStartStrategy(object):
         Terminate iff all workers vote to terminate.
         """
         proposals = [strategy.propose_action() for strategy in self.strategies]
+        proposals.reverse()
         chosen_proposal = None
         terminate_votes = 0
         for proposal in proposals:
