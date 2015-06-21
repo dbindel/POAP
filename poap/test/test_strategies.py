@@ -251,6 +251,9 @@ def test_simple_merge1():
     c.strategy = SimpleMergedStrategy(c, [strategy1, strategy2])
 
     # Allow strategy2 to get one in, then strategy1 pre-empts
+    c.set_worker(False)
+    c.no_proposal()
+    c.set_worker(True)
     r1 = c.accept_eval(args=(1,))
     p = strategy1.promise_eval(100)
     r2 = c.accept_eval(args=(100,))
@@ -330,8 +333,6 @@ def test_input1():
     r.complete(101)
     strategy.terminate()
     c.reject_terminate()
-    c.accept_eval(args=(3,))
-    strategy.terminate()
     c.accept_terminate()
     c.terminate()
 

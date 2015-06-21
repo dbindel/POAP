@@ -171,17 +171,6 @@ class BaseStrategy(object):
         proposal.add_callback(self.on_terminate_reply)
         return proposal
 
-    def proposal_copy(self, proposal):
-        "Copy a proposal and add back an on_reply callback."
-        proposal = proposal.copy()
-        if proposal.action == 'eval':
-            proposal.add_callback(self.on_reply)
-        elif proposal.action == 'kill':
-            proposal.add_callback(self.on_kill_reply)
-        elif proposal.action == 'terminate':
-            proposal.add_callback(self.on_terminate_reply)
-        return proposal
-
     def on_reply(self, proposal):
         "Default handling of eval proposal."
         if proposal.accepted:
@@ -343,7 +332,7 @@ class CoroutineStrategy(BaseStrategy):
 
     def on_reply_reject(self, proposal):
         "If proposal rejected, propose again."
-        self.proposal = self.proposal_copy(proposal)
+        self.proposal = self.propose_eval(*proposal.args)
 
     def on_terminate_reply_reject(self, proposal):
         "If termination proposal rejected, propose again."
@@ -743,7 +732,7 @@ class MaxEvalStrategy(object):
             return None
 
 
-class InputStrategy(object):
+class InputStrategy(BaseStrategy):
     """Insert requests from the outside world (e.g. from a GUI)."""
 
     def __init__(self, controller, strategy):
@@ -751,28 +740,46 @@ class InputStrategy(object):
         self.strategy = strategy
         self.proposals = deque([])
 
-    def terminate(self):
-        "Request termination of the optimization"
-        self.proposals.append(Proposal('terminate'))
-        self.controller.ping()
-
-    def kill(self, record):
-        "Request a function evaluation be killed"
-        self.proposals.append(Proposal('kill', record))
+    def _propose(self, proposal, retry):
+        proposal.retry = retry
+        self.proposals.append(proposal)
         self.controller.ping()
 
     def eval(self, params, retry=True):
         "Request a new function evaluation"
-        proposal = Proposal('eval', params)
-        if retry:
-            proposal.add_callback(self._on_reply)
-        self.proposals.append(proposal)
-        self.controller.ping()
+        self._propose(self.propose_eval(params), retry)
 
-    def _on_reply(self, proposal):
-        "Re-try a function evaluation if rejected"
-        if not proposal.accepted:
-            self.eval(proposal.args[0], True)
+    def kill(self, record, retry=False):
+        "Request a function evaluation be killed"
+        self._propose(self.propose_kill(record), retry)
+
+    def terminate(self, retry=True):
+        "Request termination of the optimization"
+        self._propose(self.propose_terminate(), retry)
+
+    def on_reply_accept(self, proposal):
+        "Copy over the retry flag"
+        proposal.record.retry = proposal.retry
+
+    def on_reply_reject(self, proposal):
+        "Retry if requested"
+        if proposal.retry:
+            self.eval(proposal.args[0], retry=True)
+
+    def on_kill(self, record):
+        "Retry if killed"
+        if record.retry:
+            self.eval(record.params[0], retry=True)
+
+    def on_kill_reply_reject(self, proposal):
+        "Retry kill if requested"
+        if proposal.retry:
+            self.kill(proposal.args[0], retry=True)
+
+    def on_terminate_reply_reject(self, proposal):
+        "Retry if requested"
+        if proposal.retry:
+            self.terminate(retry=True)
 
     def propose_action(self):
         if self.proposals:
