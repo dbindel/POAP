@@ -547,6 +547,9 @@ class PromiseStrategy(BaseStrategy):
 
         def ready(self):
             "Check whether the value is ready (at consumer)"
+            while not self.valueq.empty():
+                msg = self.valueq.get()
+                msg()
             return self._value is not None
 
         @property
@@ -602,6 +605,7 @@ class PromiseStrategy(BaseStrategy):
         "Re-submit the proposal with the same promise."
         proposal = self.propose_eval(*record.params)
         proposal.promise = record.promise
+        self.proposalq.put(proposal)
 
     def on_terminate(self):
         "Throw an exception at the consumer if still running on termination"
@@ -665,7 +669,7 @@ class ThreadStrategy(PromiseStrategy):
                 self.strategy.terminate()
 
     def __init__(self, controller, optimizer, rvalue=lambda r: r.value):
-        PromiseStrategy.__init__(self, rvalue)
+        PromiseStrategy.__init__(self, rvalue, block=False)
         self.thread = self.OptimizerThread(self, optimizer)
         self.thread.start()
         controller.add_term_callback(self.on_terminate)
