@@ -233,6 +233,90 @@ class BaseStrategy(object):
         pass
 
 
+class RetryStrategy(BaseStrategy):
+    """Retry strategy class.
+
+    The RetryStrategy class manages a queue of proposals to be retried,
+    either because they were rejected or because they correspond to
+    a function evaluation.  When a proposal is retried, we retain all
+    callbacks associated with the original version.
+
+    Attributes:
+        proposals: Queue of outstanding proposals
+        num_eval_pending: Number of pending evaluations
+        num_eval_running: Number of running evaluations
+        num_eval_outstanding: Number of outstanding evaluations
+    """
+
+    def __init__(self):
+        self.proposals = deque([])
+        self.num_eval_pending = 0
+        self.num_eval_running = 0
+
+    @property
+    def num_eval_outstanding(self):
+        "Number of outstanding function evaluations."
+        return self.num_eval_pending + self.num_eval_running
+
+    def put(self, proposal):
+        "Put a non-retry proposal in the queue."
+        self.proposals.append(proposal)
+
+    def rput(self, proposal):
+        "Put a retry proposal in the queue."
+        if proposal.action == 'eval':
+            proposal.add_callback(self.on_reply)
+            self.num_eval_pending += 1
+        elif proposal.action == 'kill':
+            proposal.add_callback(self.on_kill_reply)
+        elif proposal.action == 'terminate':
+            proposal.add_callback(self.on_terminate_reply)
+        self.put(proposal)
+
+    def get(self):
+        "Pop a proposal from the queue."
+        if self.proposals:
+            return self.proposals.popleft()
+
+    def empty(self):
+        "Check if the queue is empty"
+        return not self.proposals
+
+    def _resubmit(self, proposal):
+        "Recycle a previously-submitted proposal."
+        del proposal.accepted
+        self.put(proposal)
+
+    def on_reply_accept(self, proposal):
+        "Process accepted eval+retry proposal"
+        proposal.record.retry = proposal
+        self.num_eval_pending -= 1
+        self.num_eval_running += 1
+
+    def on_reply_reject(self, proposal):
+        "Resubmit rejected eval+retry proposal"
+        self._resubmit(proposal)
+
+    def on_kill_reply_reject(self, proposal):
+        "Resubmit rejected kill+retry proposal"
+        self._resubmit(proposal)
+
+    def on_terminate_reply_reject(self, proposal):
+        "Resubmit rejected termination+retry proposal"
+        self._resubmit(proposal)
+
+    def on_complete(self, record):
+        "Clean up after completed eval+retry"
+        self.num_eval_running -= 1
+        del record.retry
+
+    def on_kill(self, record):
+        "Resubmit proposal for killed or cancelled eval+retry"
+        self.num_eval_running -= 1
+        self.num_eval_pending += 1
+        self._resubmit(record.retry)
+
+
 class FixedSampleStrategy(BaseStrategy):
     """Sample at a fixed set of points.
 
@@ -258,38 +342,19 @@ class FixedSampleStrategy(BaseStrategy):
             for point in points:
                 yield point
         self.point_generator = point_generator()
-        self.proposed_points = []
-        self.outstanding = 0
+        self.resubmitter = RetryStrategy()
 
     def propose_action(self):
         "Propose an action based on outstanding points."
         try:
-            if not self.proposed_points:
+            if self.resubmitter.empty():
                 point = next(self.point_generator)
-                self.proposed_points.append(point)
-            point = self.proposed_points.pop()
-            return self.propose_eval(point)
+                proposal = self.propose_eval(point)
+                self.resubmitter.rput(proposal)
+            return self.resubmitter.get()
         except StopIteration:
-            if self.outstanding == 0:
-                return Proposal('terminate')
-            return None
-
-    def on_reply_accept(self, proposal):
-        "Handle a proposal acceptance."
-        self.outstanding += 1
-
-    def on_reply_reject(self, proposal):
-        "Handle a proposal rejection."
-        self.proposed_points.append(proposal.args[0])
-
-    def on_complete(self, record):
-        "Update counts on successful completion"
-        self.outstanding -= 1
-
-    def on_kill(self, record):
-        "Re-request evaluation on cancellation."
-        self.outstanding -= 1
-        self.proposed_points.append(*record.params)
+            if self.resubmitter.num_eval_outstanding == 0:
+                return self.propose_terminate()
 
 
 class CoroutineStrategy(BaseStrategy):
@@ -303,48 +368,33 @@ class CoroutineStrategy(BaseStrategy):
     available.
 
     Attributes:
-        coroutine: Optimizer coroutine
-        rvalue:    Function to map records to values
-        proposal:  Proposal that the strategy is currently requesting.
+        coroutine:   Optimizer coroutine
+        rvalue:      Function to map records to values
+        resubmitter: Resubmission manager
     """
 
     def __init__(self, coroutine, rvalue=lambda r: r.value):
         "Initialize the strategy."
         self.coroutine = coroutine
         self.rvalue = rvalue
-        self.done = False
+        self.resubmitter = RetryStrategy()
         try:
-            self.proposal = self.propose_eval(next(self.coroutine))
+            self.resubmitter.rput(self.propose_eval(next(self.coroutine)))
         except StopIteration:
-            self.proposal = self.propose_terminate()
-
-    def next_request(self, value):
-        "Request next function evaluation."
-        try:
-            self.proposal = self.propose_eval(self.coroutine.send(value))
-        except StopIteration:
-            self.proposal = self.propose_terminate()
+            self.resubmitter.rput(self.propose_terminate())
 
     def propose_action(self):
         "If we have a pending request, propose it."
-        proposal, self.proposal = self.proposal, None
-        return proposal
-
-    def on_reply_reject(self, proposal):
-        "If proposal rejected, propose again."
-        self.proposal = self.propose_eval(*proposal.args)
-
-    def on_terminate_reply_reject(self, proposal):
-        "If termination proposal rejected, propose again."
-        self.proposal = self.propose_terminate()
+        if not self.resubmitter.empty():
+            return self.resubmitter.get()
 
     def on_complete(self, record):
         "Return point to coroutine"
-        self.next_request(self.rvalue(record))
-
-    def on_kill(self, record):
-        "Re-request point"
-        self.proposal = self.propose_eval(*record.params)
+        try:
+            params = self.coroutine.send(self.rvalue(record))
+            self.resubmitter.rput(self.propose_eval(params))
+        except StopIteration:
+            self.resubmitter.rput(self.propose_terminate())
 
 
 class CoroutineBatchStrategy(BaseStrategy):
