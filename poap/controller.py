@@ -95,20 +95,23 @@ class SerialController(Controller):
         strategy: Strategy for choosing optimization actions.
         objective: Objective function
         fevals: Database of function evaluations
+        skip: if True, skip over "None" proposals
     """
 
-    def __init__(self, objective):
+    def __init__(self, objective, skip=False):
         "Initialize the controller."
         Controller.__init__(self)
         self.objective = objective
+        self.skip = skip
 
     def _run(self, merit=None):
         "Run the optimization and return the best value."
         while True:
             proposal = self.strategy.propose_action()
             if not proposal:
-                raise NameError('No proposed action')
-            if proposal.action == 'terminate':
+                if not self.skip:
+                    raise NameError('No proposed action')
+            elif proposal.action == 'terminate':
                 proposal.accept()
                 return self.best_point(merit)
             elif proposal.action == 'eval':
