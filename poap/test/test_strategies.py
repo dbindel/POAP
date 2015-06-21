@@ -35,16 +35,17 @@ def test_fixed_sample2():
         c.reject_eval(args=(3,))
         r1.kill()
         r2.running()
-        r1 = c.accept_eval(args=(1,)).complete(1)
-        r3 = c.accept_eval(args=(3,)).complete(3)
-        r4 = c.accept_eval(args=(4,)).complete(4)
+        c.accept_eval(args=(1,)).complete(1)
+        c.accept_eval(args=(3,)).complete(3)
+        c.accept_eval(args=(4,)).complete(4)
         c.no_proposal()
         r2.complete(2)
         c.reject_terminate()
         c.accept_terminate()
         c.terminate()
+
     def g():
-        for k in range(1,5):
+        for k in range(1, 5):
             yield k
     run(FixedSampleStrategy([1, 2, 3, 4]))
     run(FixedSampleStrategy(g()))
@@ -61,7 +62,7 @@ def test_coroutine1():
     c = ScriptedController()
     c.strategy = CoroutineStrategy(coroutine_optimizer([]))
     c.reject_terminate()
-    c.reject_terminate()    
+    c.reject_terminate()
     c.accept_terminate()
     c.terminate()
 
@@ -89,7 +90,7 @@ def test_coroutine2():
     # And check the simple case where everything goes without incident
     c.accept_eval(args=(3,)).complete(3)
     c.reject_terminate()
-    c.reject_terminate()    
+    c.reject_terminate()
     c.accept_terminate()
     c.terminate()
 
@@ -123,7 +124,7 @@ def test_coroutine_batch2():
 def test_coroutine_batch3():
     "Check coroutine batch strategy"
     c = ScriptedController()
-    o = coroutine_batch_optimizer([[1,2], [3,4]])
+    o = coroutine_batch_optimizer([[1, 2], [3, 4]])
     c.strategy = CoroutineBatchStrategy(o)
 
     # Make trouble for batch [1,2]
@@ -155,6 +156,9 @@ def main():
     test_fixed_sample2()
     test_coroutine1()
     test_coroutine2()
+    test_coroutine_batch1()
+    test_coroutine_batch2()
+    test_coroutine_batch3()
 
 
 if __name__ == "__main__":
