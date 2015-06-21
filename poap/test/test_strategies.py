@@ -299,17 +299,6 @@ def test_multistart1():
 def test_maxeval1():
     "Test MaxEvalStrategy"
     c = ScriptedController()
-    strategy = FixedSampleStrategy([1, 2, 3, 4, 5])
-    c.strategy = MaxEvalStrategy(c, strategy, 2)
-    c.accept_eval(args=(1,)).complete(1)
-    c.accept_eval(args=(2,)).complete(2)
-    c.accept_terminate()
-    c.terminate()
-
-
-def test_maxeval2():
-    "Test MaxEvalStrategy"
-    c = ScriptedController()
     strategy1 = MaxEvalStrategy(c, 2)
     strategy2 = FixedSampleStrategy([1, 2, 3, 4, 5])
     c.strategy = SimpleMergedStrategy(c, [strategy1, strategy2])
