@@ -1,3 +1,9 @@
+"""
+.. module:: test_strategies
+   :synopsis: Tests covering strategy module.
+.. moduleauthor:: David Bindel <bindel@cornell.edu>
+"""
+
 from poap.controller import ScriptedController
 
 from poap.strategy import FixedSampleStrategy
