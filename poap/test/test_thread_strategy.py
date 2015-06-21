@@ -38,7 +38,7 @@ def golden_section(objective, a, b, maxiter):
 
 def main():
     "Testing routine."
-    controller = SerialController(lambda x: (x-0.123)*(x-0.123))
+    controller = SerialController(lambda x: (x-0.123)*(x-0.123), skip=True)
     strategy = ThreadStrategy(controller,
                               lambda f: golden_section(f.blocking_eval,
                                                        0.0, 1.0, 20))
