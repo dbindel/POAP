@@ -6,12 +6,13 @@ from poap.strategy import CoroutineStrategy
 from poap.strategy import CoroutineBatchStrategy
 from poap.strategy import PromiseStrategy
 from poap.strategy import ThreadStrategy
-# from poap.strategy import OptimizerThread
-# from poap.strategy import CheckWorkerStrategy
-# from poap.strategy import SimpleMergedStrategy
-# from poap.strategy import MultiStartStrategy
-# from poap.strategy import MaxEvalStrategy
+from poap.strategy import CheckWorkerStrategy
+from poap.strategy import SimpleMergedStrategy
+from poap.strategy import MultiStartStrategy
+from poap.strategy import MaxEvalStrategy
 # from poap.strategy import InputStrategy
+
+import time
 
 
 def test_fixed_sample1():
@@ -214,6 +215,110 @@ def test_thread1():
     c.terminate()
 
 
+def test_check_worker0():
+    "Check: Without CheckWorkerStrategy, FixedStrategy ignores availability"
+    c = ScriptedController()
+    c.strategy = FixedSampleStrategy([1, 2])
+    c.set_worker(False)
+    r1 = c.accept_eval(args=(1,))
+    r1.complete(1)
+    r2 = c.accept_eval(args=(2,))
+    r2.complete(2)
+    c.accept_terminate()
+    c.terminate()
+
+
+def test_check_worker1():
+    "Test CheckWorkerStrategy"
+    c = ScriptedController()
+    strategy = FixedSampleStrategy([1, 2])
+    c.strategy = CheckWorkerStrategy(c, strategy)
+    r1 = c.accept_eval(args=(1,))
+    c.set_worker(False)
+    r2 = c.no_proposal()
+    r1.complete(1)
+    c.set_worker(True)
+    r2 = c.accept_eval(args=(2,))
+    r2.complete(2)
+    c.accept_terminate()
+    c.terminate()
+
+
+def test_simple_merge1():
+    "Test SimpleMergeStrategy"
+    c = ScriptedController()
+    strategy1 = PromiseStrategy(block=False)
+    strategy2 = FixedSampleStrategy([1, 2, 3])
+    c.strategy = SimpleMergedStrategy(c, [strategy1, strategy2])
+
+    # Allow strategy2 to get one in, then strategy1 pre-empts
+    r1 = c.accept_eval(args=(1,))
+    p = strategy1.promise_eval(100)
+    r2 = c.accept_eval(args=(100,))
+    r1.complete(1)
+    assert not p.ready()
+    r2.complete(100)
+    assert p.value == 100
+    strategy1.terminate()
+
+    c.reject_terminate()
+    c.reject_terminate()
+    c.accept_terminate()
+    c.terminate()
+
+
+def test_multistart1():
+    "Test MultistartStrategy"
+    c = ScriptedController()
+    strategy1 = PromiseStrategy(block=False)
+    strategy2 = FixedSampleStrategy([1, 2, 3])
+    c.strategy = MultiStartStrategy(c, [strategy1, strategy2])
+
+    # Allow strategy2 to get one in, then strategy1 pre-empts
+    r1 = c.accept_eval(args=(1,))
+    p = strategy1.promise_eval(100)
+    time.sleep(0.1)
+    r2 = c.accept_eval(args=(100,))
+    r1.complete(1)
+    assert not p.ready()
+    r2.complete(100)
+    assert p.value == 100
+    strategy1.terminate()
+
+    # Now strategy2 finishes
+    c.accept_eval(args=(2,)).complete(2)
+    c.accept_eval(args=(3,)).complete(3)
+
+    # Now we should see termination
+    c.reject_terminate()
+    c.reject_terminate()
+    c.accept_terminate()
+    c.terminate()
+
+
+def test_maxeval1():
+    "Test MaxEvalStrategy"
+    c = ScriptedController()
+    strategy = FixedSampleStrategy([1, 2, 3, 4, 5])
+    c.strategy = MaxEvalStrategy(c, strategy, 2)
+    c.accept_eval(args=(1,)).complete(1)
+    c.accept_eval(args=(2,)).complete(2)
+    c.accept_terminate()
+    c.terminate()
+
+
+def test_maxeval2():
+    "Test MaxEvalStrategy"
+    c = ScriptedController()
+    strategy1 = MaxEvalStrategy(c, 2)
+    strategy2 = FixedSampleStrategy([1, 2, 3, 4, 5])
+    c.strategy = SimpleMergedStrategy(c, [strategy1, strategy2])
+    c.accept_eval(args=(1,)).complete(1)
+    c.accept_eval(args=(2,)).complete(2)
+    c.accept_terminate()
+    c.terminate()
+
+
 def main():
     test_fixed_sample1()
     test_fixed_sample2()
@@ -224,6 +329,11 @@ def main():
     test_coroutine_batch3()
     test_promise1()
     test_thread1()
+    test_check_worker0()
+    test_check_worker1()
+    test_simple_merge1()
+    test_multistart1()
+    test_maxeval1()
 
 
 if __name__ == "__main__":
