@@ -10,7 +10,6 @@ except ImportError:
     import queue as Queue
 
 import threading
-import numpy
 import random
 from collections import deque
 
@@ -444,6 +443,11 @@ class CoroutineBatchStrategy(BaseStrategy):
     function evaluation and returns the records associated with those
     function evaluations when all have been completed.
 
+    NB: Within a given batch, function evaluations are attempted in
+    the reverse of the order in which they are specified.  This should
+    make no difference for most things (the batch is not assumed to have
+    any specific order), but it is significant for testing.
+
     Attributes:
         coroutine: Optimizer coroutine
         on_feval_start: Handler to be called on start of feval
@@ -454,7 +458,7 @@ class CoroutineBatchStrategy(BaseStrategy):
 
     """
 
-    def __init__(self, coroutine, rvalue=lambda r: r.value, 
+    def __init__(self, coroutine, rvalue=lambda r: r.value,
                  on_feval_start=None, on_feval_done=None):
         self.coroutine = coroutine
         self.rvalue = rvalue
@@ -514,12 +518,127 @@ class CoroutineBatchStrategy(BaseStrategy):
         self.pointq.append((record.batch_id, record.params[0]))
 
 
-class ThreadStrategy(BaseStrategy):
+class PromiseStrategy(BaseStrategy):
+    """Provides a promise-based asynchronous evaluation interface.
+
+    A promise (aka a future) is a common concurrent programming abstraction.
+    A caller requests an asynchronous evaluation, and the call returns
+    immediately with a promise object.  The caller can check the promise
+    object to see if it has a value ready, or wait for the value to become
+    ready.  The callee can set the value when it is ready.
+
+    Attributes:
+        proposalq: Queue of proposed actions caused by optimizer.
+        valueq:    Queue of function values from proposed actions.
+        rvalue:    Function to extract return value from a record
+        block:     Flag whether to block on proposal pop
+    """
+
+    class Promise(object):
+        """Evaluation promise.
+
+        Properties:
+            value: Promised value.  Block on read if not ready.
+        """
+
+        def __init__(self, valueq):
+            self._value = None
+            self.valueq = valueq
+
+        def ready(self):
+            "Check whether the value is ready (at consumer)"
+            return self._value is not None
+
+        @property
+        def value(self):
+            "Wait on the value (at consumer)"
+            while self._value is None:
+                msg = self.valueq.get()
+                msg()
+            return self._value
+
+        @value.setter
+        def value(self, fx):
+            "Set the value (at producer)"
+            self.valueq.put(lambda: self._set(fx))
+
+        def _set(self, fx):
+            "Set the value (at the consumer)"
+            self._value = fx
+
+    # Controller-facing routines
+
+    def __init__(self, rvalue=lambda r: r.value, block=True):
+        "Initialize the strategy."
+        self.proposalq = Queue.Queue()
+        self.valueq = Queue.Queue()
+        self.rvalue = rvalue
+        self.block = block
+
+    def propose_action(self):
+        "Provide proposals from the queue."
+        if self.block or not self.proposalq.empty():
+            return self.proposalq.get()
+
+    def on_reply_accept(self, proposal):
+        "Make sure we copy over the promise to the feval record."
+        proposal.record.promise = proposal.promise
+
+    def on_reply_reject(self, proposal):
+        "Re-submit the proposal with the same promise."
+        new_proposal = self.propose_eval(*proposal.args)
+        new_proposal.promise = proposal.promise
+        self.proposalq.put(new_proposal)
+
+    def on_terminate_reply_reject(self, proposal):
+        "Re-submit the termination proposal."
+        self.proposalq.put(self.propose_terminate())
+
+    def on_complete(self, record):
+        "Send the value to the consumer via the promise."
+        record.promise.value = self.rvalue(record)
+
+    def on_kill(self, record):
+        "Re-submit the proposal with the same promise."
+        proposal = self.propose_eval(*record.params)
+        proposal.promise = record.promise
+
+    def on_terminate(self):
+        "Throw an exception at the consumer if still running on termination"
+        self.valueq.put(self._throw_terminate)
+
+    # Client-facing routines
+
+    def promise_eval(self, *args):
+        "Request a function evaluation and return a promise object."
+        proposal = self.propose_eval(*args)
+        proposal.promise = self.Promise(self.valueq)
+        self.proposalq.put(proposal)
+        return proposal.promise
+
+    def blocking_eval(self, *args):
+        "Request a function evaluation and block until done."
+        return self.promise_eval(*args).value
+
+    def blocking_evals(self, xs):
+        "Request a list of function evaluations."
+        promises = [self.promise_eval(x) for x in xs]
+        return [p.value for p in promises]
+
+    def terminate(self):
+        "Request termination."
+        self.proposalq.put(self.propose_terminate())
+
+    def _throw_terminate(self):
+        raise Exception("Run terminated")
+
+
+class ThreadStrategy(PromiseStrategy):
     """Event-driven to serial adapter using threads.
 
     The thread strategy runs a standard sequential optimization algorithm
     in a separate thread of control, with which the strategy communicates
-    via queues.  The optimizer thread intercepts function evaluation requests
+    via promises.  The optimizer thread intercepts function evaluation requests
     and completion and turns them into proposals for the strategy, which
     it places in a proposal queue.  The optimizer then waits for the requested
     values (if any) to appear in the reply queue.
@@ -533,61 +652,27 @@ class ThreadStrategy(BaseStrategy):
         rvalue:    Function mapping records to values
     """
 
-    def __init__(self, optimizer, rvalue=lambda r: r.value, daemon=True):
-        """Initialize the strategy.
+    class OptimizerThread(threading.Thread):
+        def __init__(self, strategy, optimizer):
+            threading.Thread.__init__(self)
+            self.strategy = strategy
+            self.optimizer = optimizer
 
-        Args:
-            optimizer: Optimizer function (takes objective as an argument)
-        """
-        self.optimizer = optimizer
-        self.rvalue = rvalue
-        self.proposalq = Queue.Queue()
-        self.valueq = Queue.Queue()
-        self.thread = OptimizerThread(self)
-        self.thread.setDaemon(daemon)
+        def run(self):
+            try:
+                self.optimizer(self.strategy)
+            finally:
+                self.strategy.terminate()
+
+    def __init__(self, controller, optimizer, rvalue=lambda r: r.value):
+        PromiseStrategy.__init__(self, rvalue)
+        self.thread = self.OptimizerThread(self, optimizer)
         self.thread.start()
-        self.proposal = self.proposalq.get()
+        controller.add_term_callback(self.on_terminate)
 
-    def propose_action(self):
-        "If we have a pending request, propose it."
-        proposal, self.proposal = self.proposal, None
-        return proposal
-
-    def on_reply_reject(self, proposal):
-        "Propose again."
-        self.proposal = self.proposal_copy(proposal)
-
-    def on_complete(self, record):
-        "Return on completion"
-        self.valueq.put(self.rvalue(record))
-        self.proposal = self.proposalq.get()
-
-    def on_kill(self, record):
-        "Re-request on cancellation."
-        self.proposal = self.propose_eval(*record.params)
-
-
-class OptimizerThread(threading.Thread):
-    "Thread running serial optimizer."
-
-    def __init__(self, strategy):
-        "Initialize thread with hookup to strategy."
-        super(OptimizerThread, self).__init__()
-        self.strategy = strategy
-        self.proposalq = strategy.proposalq
-        self.valueq = strategy.valueq
-
-    def objective(self, *args):
-        "Provide function call interface to ThreadStrategy."
-        self.proposalq.put(self.strategy.propose_eval(*args))
-        return self.valueq.get()
-
-    def run(self):
-        "Thread main routine."
-        try:
-            self.strategy.optimizer(self.objective)
-        finally:
-            self.proposalq.put(Proposal('terminate'))
+    def on_terminate(self):
+        PromiseStrategy.on_terminate(self)
+        self.thread.join()
 
 
 class CheckWorkerStrategy(object):
