@@ -89,6 +89,12 @@ Base strategy
 .. autoclass:: poap.strategy.BaseStrategy
    :members:
 
+Retry strategy
+-------------
+
+.. autoclass:: poap.strategy.RetryStrategy
+   :members:
+
 Fixed sampling
 --------------
 

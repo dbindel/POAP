@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='POAP',
-    version='0.1.6',
+    version='0.1.7',
     author='David Bindel',
     author_email='bindel@cornell.edu',
     packages=['poap', 'poap.test'],

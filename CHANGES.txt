@@ -1,3 +1,7 @@
+v0.1.7, 2015-06-21
+	Reintroduced revised RetryStrategy
+	Revised several other strategies to use modified RetryStrategy
+
 v0.1.6, 2015-06-20
         Added rvalue mapper to coroutine- and thread-based strategies
         Added merit mapper to Controller.best_point / Controller.run
