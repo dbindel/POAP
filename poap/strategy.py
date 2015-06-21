@@ -779,6 +779,11 @@ class MultiStartStrategy(object):
 class MaxEvalStrategy(object):
     """Recommend termination of the iteration after some number of evals.
 
+    Recommends termination after observing some number of *completed*
+    function evaluations.  We allow more than the requisite number
+    of evaluations to be started, since there's always the possibility
+    that one of our outstanding evaluations won't finish.
+
     Attributes:
         counter: Number of completed evals
         max_counter: Max number of evals
