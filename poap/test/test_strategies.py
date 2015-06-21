@@ -1,6 +1,5 @@
 from poap.controller import ScriptedController
 
-# from poap.strategy import RetryStrategy
 from poap.strategy import FixedSampleStrategy
 from poap.strategy import CoroutineStrategy
 from poap.strategy import CoroutineBatchStrategy
@@ -10,7 +9,7 @@ from poap.strategy import CheckWorkerStrategy
 from poap.strategy import SimpleMergedStrategy
 from poap.strategy import MultiStartStrategy
 from poap.strategy import MaxEvalStrategy
-# from poap.strategy import InputStrategy
+from poap.strategy import InputStrategy
 
 import time
 
@@ -304,6 +303,35 @@ def test_maxeval1():
     c.strategy = SimpleMergedStrategy(c, [strategy1, strategy2])
     c.accept_eval(args=(1,)).complete(1)
     c.accept_eval(args=(2,)).complete(2)
+    c.accept_terminate()
+    c.terminate()
+
+
+def test_input1():
+    "Test InputStrategy"
+    c = ScriptedController()
+    strategy = FixedSampleStrategy([1, 2, 3])
+    strategy = InputStrategy(c, strategy)
+    c.strategy = strategy
+    r = c.accept_eval(args=(1,))
+    strategy.kill(r)
+    c.accept_kill(r)
+    r.kill()
+    r = c.accept_eval(args=(1,))
+    r.complete(1)
+    strategy.eval(100)
+    c.reject_eval(args=(100,))
+    c.accept_eval(args=(100,)).complete(100)
+    c.accept_eval(args=(2,)).complete(2)
+    strategy.eval(101)
+    r = c.accept_eval(args=(101,))
+    strategy.kill(r)
+    c.reject_kill(r)
+    r.complete(101)
+    strategy.terminate()
+    c.reject_terminate()
+    c.accept_eval(args=(3,))
+    strategy.terminate()
     c.accept_terminate()
     c.terminate()
 
