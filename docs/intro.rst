@@ -83,25 +83,34 @@ We provide some basic default strategies based on non-adaptive
 sampling and serial optimization routines, and also some strategies
 that adapt or combine other strategies.
 
+Base strategy
+-------------
+
+.. autoclass:: poap.strategy.BaseStrategy
+   :members:
+
 Fixed sampling
 --------------
 
 .. autoclass:: poap.strategy.FixedSampleStrategy
    :members:
 
-Coroutine adapter
------------------
+Coroutine adapters
+------------------
 
 .. autoclass:: poap.strategy.CoroutineStrategy
+   :members:
+
+.. autoclass:: poap.strategy.CoroutineBatchStrategy
    :members:
 
 Threaded adapter
 ----------------
 
-.. autoclass:: poap.strategy.ThreadStrategy
+.. autoclass:: poap.strategy.PromiseStrategy
    :members:
 
-.. autoclass:: poap.strategy.OptimizerThread
+.. autoclass:: poap.strategy.ThreadStrategy
    :members:
 
 Filtering evaluation request
@@ -120,6 +129,18 @@ Terminating on maximum evaluations
 ----------------------------------
 
 .. autoclass:: poap.strategy.MaxEvalStrategy
+   :members:
+
+External input
+--------------
+
+.. autoclass:: poap.strategy.InputStrategy
+   :members:
+
+Failure testing
+---------------
+
+.. autoclass:: poap.strategy.ChaosMonkeyStrategy
    :members:
 
 Controllers
@@ -155,6 +176,12 @@ Simulation thread controller
 ----------------------------
 
 .. autoclass:: poap.controller.SimThreadController
+   :members:
+
+Scripted controller
+-------------------
+
+.. autoclass:: poap.controller.ScriptedController
    :members:
 
 Worker threads

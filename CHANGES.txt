@@ -1,3 +1,10 @@
+v0.1.6, 2015-06-20
+        Added rvalue mapper to coroutine- and thread-based strategies
+        Added merit mapper to Controller.best_point / Controller.run
+        Added ScriptedController to ease strategy testing
+        Added test_strategies.py
+        Killed RetryStrategy
+
 v0.1.5, 2015-06-19
         Added try/finally around controller run() to ensure term callbacks.
         Factored BaseStrategy from several strategies.
