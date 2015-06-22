@@ -113,7 +113,7 @@ class SerialController(Controller):
                     raise NameError('No proposed action')
             elif proposal.action == 'terminate':
                 proposal.accept()
-                return self.best_point(merit)
+                return self.best_point(merit=merit)
             elif proposal.action == 'eval':
                 proposal.record = self.new_feval(proposal.args)
                 proposal.accept()
@@ -232,7 +232,7 @@ class ThreadController(Controller):
                 self._run_message()
             elif proposal.action == 'terminate':
                 proposal.accept()
-                return self.best_point()
+                return self.best_point(merit=merit)
             elif proposal.action == 'eval' and self.can_work():
                 self._submit_work(proposal)
             elif proposal.action == 'kill' and not proposal.args[0].is_done():
