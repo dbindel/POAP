@@ -1,3 +1,6 @@
+v0.1.8, 2015-06-22
+	Bugfix: merit argument not passed through run in ThreadController
+
 v0.1.7, 2015-06-21
 	Reintroduced revised RetryStrategy
 	Revised several other strategies to use modified RetryStrategy
