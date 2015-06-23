@@ -11,7 +11,12 @@ except ImportError:
 
 import threading
 import random
+import logging
 from collections import deque
+
+
+# Get module-level logger
+logger = logging.getLogger(__name__)
 
 
 class Proposal(object):
@@ -57,12 +62,14 @@ class Proposal(object):
 
     def accept(self):
         "Mark the action as accepted and execute callbacks."
+        logger.debug("Running callbacks on proposal accept")
         self.accepted = True
         for callback in self.callbacks:
             callback(self)
 
     def reject(self):
         "Mark action as rejected and execute callbacks."
+        logger.debug("Running callbacks on proposal reject")
         self.accepted = False
         for callback in self.callbacks:
             callback(self)
@@ -114,6 +121,7 @@ class EvalRecord(object):
 
     def update(self):
         "Execute callbacks."
+        logger.debug("Running callbacks on feval update")
         for callback in self.callbacks:
             callback(self)
 
@@ -173,7 +181,9 @@ class BaseStrategy(object):
 
     def on_reply(self, proposal):
         "Default handling of eval proposal."
+        logger.debug("Receive proposal reply at base strategy")
         if proposal.accepted:
+            logger.debug("Add on_update callback to record")
             proposal.record.add_callback(self.on_update)
             self.on_reply_accept(proposal)
         else:
@@ -189,6 +199,7 @@ class BaseStrategy(object):
 
     def on_kill_reply(self, proposal):
         "Default handling of kill proposal."
+        logger.debug("Received kill proposal reply at base strategy")
         if proposal.accepted:
             self.on_kill_reply_accept(proposal)
         else:
@@ -204,6 +215,7 @@ class BaseStrategy(object):
 
     def on_terminate_reply(self, proposal):
         "Default handling of terminate proposal."
+        logger.debug("Received terminate proposal reply at base strategy")
         if proposal.accepted:
             self.on_terminate_reply_accept(proposal)
         else:
@@ -220,9 +232,13 @@ class BaseStrategy(object):
     def on_update(self, record):
         "Process update."
         if record.status == 'completed':
+            logger.debug("Received record completed at base strategy")
             self.on_complete(record)
         elif record.is_done():
+            logger.debug("Received record killed at base strategy")
             self.on_kill(record)
+        else:
+            logger.debug("Intermediate record update at base strategy")
 
     def on_complete(self, record):
         "Process completed record."
@@ -284,11 +300,13 @@ class RetryStrategy(BaseStrategy):
 
     def _resubmit(self, proposal):
         "Recycle a previously-submitted proposal."
+        logger.debug("Resubmitting retry proposal")
         del proposal.accepted
         self.put(proposal)
 
     def on_reply_accept(self, proposal):
         "Process accepted eval+retry proposal"
+        logger.debug("Recording accepted eval+retry proposal")
         proposal.record.retry = proposal
         self.num_eval_pending -= 1
         self.num_eval_running += 1
@@ -307,6 +325,7 @@ class RetryStrategy(BaseStrategy):
 
     def on_complete(self, record):
         "Clean up after completed eval+retry"
+        logger.debug("Clean up after complete eval+retry")
         self.num_eval_running -= 1
         del record.retry
 
@@ -348,11 +367,14 @@ class FixedSampleStrategy(BaseStrategy):
         "Propose an action based on outstanding points."
         try:
             if self.retry.empty():
+                logger.debug("Getting new point from fixed schedule")
                 point = next(self.point_generator)
                 proposal = self.propose_eval(point)
                 self.retry.rput(proposal)
             return self.retry.get()
         except StopIteration:
+            logger.debug("Done fixed schedule; {0} outstanding evals".format(
+                self.retry.num_eval_outstanding))
             if self.retry.num_eval_outstanding == 0:
                 return self.propose_terminate()
 
@@ -379,8 +401,10 @@ class CoroutineStrategy(BaseStrategy):
         self.rvalue = rvalue
         self.retry = RetryStrategy()
         try:
+            logger.debug("Get first point proposal from coroutine")
             self.retry.rput(self.propose_eval(next(self.coroutine)))
         except StopIteration:
+            logger.debug("Coroutine returned without yield")
             self.retry.rput(self.propose_terminate())
 
     def propose_action(self):
@@ -391,9 +415,12 @@ class CoroutineStrategy(BaseStrategy):
     def on_complete(self, record):
         "Return point to coroutine"
         try:
+            logger.debug("Return value to coroutine")
             params = self.coroutine.send(self.rvalue(record))
+            logger.debug("Set up next point proposal from coroutine")
             self.retry.rput(self.propose_eval(params))
         except StopIteration:
+            logger.debug("Coroutine returned without yield")
             self.retry.rput(self.propose_terminate())
 
 
@@ -425,6 +452,7 @@ class CoroutineBatchStrategy(BaseStrategy):
         self.retry = RetryStrategy()
         self.results = []
         try:
+            logger.debug("Get first proposed batch from coroutine")
             self.start_batch(next(self.coroutine))
         except StopIteration:
             pass
@@ -441,10 +469,14 @@ class CoroutineBatchStrategy(BaseStrategy):
         "If we have a pending request, propose it."
         try:
             if (self.retry.empty() and self.retry.num_eval_outstanding == 0):
-                self.start_batch(self.coroutine.send(self.results))
+                logger.debug("Return batch to coroutine")
+                batch = self.coroutine.send(self.results)
+                logger.debug("Queue up next batch from coroutine")
+                self.start_batch(batch)
             if not self.retry.empty():
                 return self.retry.get()
         except StopIteration:
+            logger.debug("Coroutine returned without yield")
             return self.propose_terminate()
 
     def on_reply_accept(self, proposal):
@@ -453,6 +485,8 @@ class CoroutineBatchStrategy(BaseStrategy):
 
     def on_complete(self, record):
         "Return or re-request on completion or cancellation."
+        logger.debug("Got batch value ({0}/{1})".format(
+            record.batch_id, len(self.results)))
         self.results[record.batch_id] = self.rvalue(record)
 
 
@@ -489,22 +523,27 @@ class PromiseStrategy(BaseStrategy):
 
         def ready(self):
             "Check whether the value is ready (at consumer)"
+            logger.debug("Checking if promise ready")
             while not self.valueq.empty():
                 msg = self.valueq.get()
                 msg()
+            logger.debug("Promise ready = {0}".format(self._value is not None))
             return self._value is not None
 
         @property
         def value(self):
             "Wait on the value (at consumer)"
+            logger.debug("Waiting on promise")
             while self._value is None:
                 msg = self.valueq.get()
                 msg()
+            logger.debug("Promise ready")
             return self._value
 
         @value.setter
         def value(self, fx):
             "Set the value (at producer)"
+            logger.debug("Sending value to promise object")
             self.valueq.put(lambda: self._set(fx))
 
         def _set(self, fx):
@@ -557,6 +596,7 @@ class PromiseStrategy(BaseStrategy):
 
     def promise_eval(self, *args):
         "Request a function evaluation and return a promise object."
+        logger.debug("Returning promise value")
         proposal = self.propose_eval(*args)
         proposal.promise = self.Promise(self.valueq)
         self.proposalq.put(proposal)
@@ -573,9 +613,11 @@ class PromiseStrategy(BaseStrategy):
 
     def terminate(self):
         "Request termination."
+        logger.debug("PromiseStrategy queueing termination request")
         self.proposalq.put(self.propose_terminate())
 
     def _throw_terminate(self):
+        logger.debug("Stop worker with RunTerminatedException")
         raise RunTerminatedException()
 
 
@@ -608,18 +650,21 @@ class ThreadStrategy(PromiseStrategy):
             try:
                 self.optimizer(self.strategy)
             except RunTerminatedException:
-                pass
+                logger.debug("Caught RunTerminatedException in opt thread")
             finally:
                 self.strategy.terminate()
 
     def __init__(self, controller, optimizer, rvalue=lambda r: r.value):
+        logger.debug("Initialize ThreadStrategy")
         PromiseStrategy.__init__(self, rvalue, block=False)
         self.thread = self.OptimizerThread(self, optimizer)
         self.thread.start()
         controller.add_term_callback(self.on_terminate)
 
     def on_terminate(self):
+        logger.debug("In ThreadStrategy on_terminate")
         PromiseStrategy.on_terminate(self)
+        logger.debug("ThreadStrategy waiting on worker thread join")
         self.thread.join()
 
 
@@ -644,6 +689,7 @@ class CheckWorkerStrategy(object):
         proposal = self.strategy.propose_action()
         if (proposal and proposal.action == 'eval' and
                 not self.controller.can_work()):
+            logger.debug("Reject eval proposal (no worker available)")
             proposal.reject()
             return None
         return proposal
@@ -674,6 +720,7 @@ class SimpleMergedStrategy(object):
             if proposal is None:
                 pass
             elif proposal.action == 'eval' and not self.controller.can_work():
+                logger.debug("Reject eval proposal (no worker available)")
                 proposal.reject()
             else:
                 return proposal
@@ -752,10 +799,13 @@ class MaxEvalStrategy(object):
         "On every completion, increment the counter."
         if record.status == 'completed':
             self.counter += 1
+        logger.debug("MaxEvalStrategy: completed {0}/{1}".format(
+            self.counter, self.max_counter))
 
     def propose_action(self):
         "Propose termination once the eval counter is high enough."
         if self.counter >= self.max_counter:
+            logger.debug("MaxEvalStrategy: request termination")
             return Proposal('terminate')
         else:
             return None
@@ -806,7 +856,7 @@ class ChaosMonkeyStrategy(object):
     which case the monkey's attacks are ultimately futile.
     """
 
-    def __init__(self, controller, strategy, logger=None, mtbf=1):
+    def __init__(self, controller, strategy, mtbf=1):
         """Release the chaos monkey!
 
         Args:
@@ -818,15 +868,9 @@ class ChaosMonkeyStrategy(object):
         self.strategy = strategy
         self.running_fevals = []
         self.lam = 1.0/mtbf
-        self.logger = logger
         self.target = None
         controller.add_feval_callback(self.on_new_feval)
         controller.add_timer(random.expovariate(self.lam), self.on_timer)
-
-    def log(self, msg):
-        "Write message to the logger."
-        if self.logger is not None:
-            self.logger(msg)
 
     def on_new_feval(self, record):
         "On every feval, add a callback."
@@ -852,7 +896,7 @@ class ChaosMonkeyStrategy(object):
 
     def propose_action(self):
         if self.target:
-            self.log("Monkey attack! {0}".format(self.target.params))
+            logger.info("Monkey attack! {0}".format(self.target.params))
             proposal = Proposal('kill', self.target)
             self.target = None
         else:
