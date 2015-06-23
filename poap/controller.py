@@ -11,7 +11,12 @@ except ImportError:
 
 import heapq
 import threading
+import logging
 from poap.strategy import EvalRecord
+
+
+# Get module-level logger
+logger = logging.getLogger(__name__)
 
 
 class Controller(object):
@@ -26,6 +31,7 @@ class Controller(object):
 
     def __init__(self):
         "Initialize the controller."
+        logger.debug("Initialize controller")
         self.strategy = None
         self.fevals = []
         self.feval_callbacks = []
@@ -58,12 +64,14 @@ class Controller(object):
         """
         record = EvalRecord(params, status=status)
         self.fevals.append(record)
+        logger.debug("Call new feval callbacks")
         for callback in self.feval_callbacks:
             callback(record)
         return record
 
     def call_term_callbacks(self):
         "Call termination callbacks."
+        logger.debug("Call termination callbacks")
         for callback in self.term_callbacks:
             callback()
 
@@ -112,14 +120,17 @@ class SerialController(Controller):
                 if not self.skip:
                     raise NameError('No proposed action')
             elif proposal.action == 'terminate':
+                logger.debug("Accept termination proposal")
                 proposal.accept()
                 return self.best_point(merit=merit)
             elif proposal.action == 'eval':
+                logger.debug("Accept eval proposal")
                 proposal.record = self.new_feval(proposal.args)
                 proposal.accept()
                 value = self.objective(*proposal.record.params)
                 proposal.record.complete(value)
             else:
+                logger.debug("Reject proposal")
                 proposal.reject()
 
     def run(self, merit=None):
@@ -166,6 +177,7 @@ class ThreadController(Controller):
 
     def ping(self):
         "Tell controller to consult strategies when possible"
+        logger.debug("Wake thread controller")
         self.add_message()
 
     def lprint(self, *args):
@@ -188,11 +200,13 @@ class ThreadController(Controller):
 
     def add_worker(self, worker):
         "Add a worker and queue a 'wake-up' message."
+        logger.debug("Add worker to thread controller")
         self.workers.put(worker)
         self.add_message()
 
     def launch_worker(self, worker, daemon=False):
         "Launch and take ownership of a new worker thread."
+        logger.debug("Launch worker in thread controller")
         self.add_worker(worker)
         self.add_term_callback(worker.terminate)
         worker.daemon = worker.daemon or daemon
@@ -206,11 +220,13 @@ class ThreadController(Controller):
         "Submit proposed work."
         try:
             worker = self.workers.get_nowait()
+            logger.debug("Accept eval proposal")
             proposal.record = self.new_feval(proposal.args)
             proposal.record.worker = worker
             proposal.accept()
             worker.eval(proposal.record)
         except Queue.Empty:
+            logger.debug("Reject eval proposal -- no worker")
             proposal.reject()
 
     def _run_message(self):
@@ -231,14 +247,18 @@ class ThreadController(Controller):
             if not proposal:
                 self._run_message()
             elif proposal.action == 'terminate':
+                logger.debug("Accept terminate proposal")
                 proposal.accept()
                 return self.best_point(merit=merit)
             elif proposal.action == 'eval' and self.can_work():
                 self._submit_work(proposal)
             elif proposal.action == 'kill' and not proposal.args[0].is_done():
+                logger.debug("Accept kill proposal")
                 record = proposal.args[0]
+                proposal.accept()
                 record.worker.kill(record)
             else:
+                logger.debug("Reject proposal")
                 proposal.reject()
 
     def run(self, merit=None):
@@ -260,21 +280,30 @@ class BaseWorkerThread(threading.Thread):
 
     def __init__(self, controller):
         "Initialize the worker."
+        logger.debug("Initialize worker thread")
         super(BaseWorkerThread, self).__init__()
         self.controller = controller
         self.queue = Queue.Queue()
 
     def eval(self, record):
         "Start evaluation."
+        logger.debug("Queue eval at worker")
         self.queue.put(('eval', record))
 
     def kill(self, record):
         "Send kill message to worker."
+        logger.debug("Queue kill at worker")
         self.queue.put(('kill', record))
 
     def terminate(self):
         "Send termination message to worker."
+        logger.debug("Queue terminate at worker")
         self.queue.put(('terminate',))
+        if self.daemon:
+            logger.debug("Do not wait on thread join (daemon)")
+        else:
+            logger.debug("Wait on worker thread join")
+            self.join()
 
     def lprint(self, *args):
         "Print log message at controller"
@@ -286,15 +315,18 @@ class BaseWorkerThread(threading.Thread):
 
     def add_worker(self):
         "Add worker back to the work queue."
+        logger.debug("Worker thread is ready")
         self.controller.add_worker(self)
 
     def finish_success(self, record, value):
         "Finish successful work on a record and add ourselves back."
+        logger.debug("Finished feval successfully")
         self.add_message(lambda: record.complete(value))
         self.add_worker()
 
     def finish_failure(self, record):
         "Finish recording failure on a record and add ourselves back."
+        logger.debug("Feval failed")
         self.add_message(record.kill)
         self.add_worker()
 
@@ -315,13 +347,17 @@ class BaseWorkerThread(threading.Thread):
         while True:
             request = self.queue.get()
             if request[0] == 'eval':
+                logger.debug("Worker thread received eval request")
                 record = request[1]
                 self.add_message(record.running)
                 self.handle_eval(record)
             elif request[0] == 'kill':
+                logger.debug("Worker thread received kill request")
                 self.handle_kill(request[1])
             elif request[0] == 'terminate':
+                logger.debug("Worker thread received terminate request")
                 self.handle_terminate()
+                logger.debug("Exit worker thread run()")
                 return
 
 
@@ -360,18 +396,20 @@ class ProcessWorkerThread(BaseWorkerThread):
         super(ProcessWorkerThread, self).__init__(controller)
         self.process = None
 
+    def _kill_process(self):
+        if self.process is not None and self.process.poll() is None:
+            logger.debug("ProcessWorker is killing subprocess")
+            self.process.terminate()
+
     def kill(self, record):
         "Send kill message."
-        if self.process is not None and self.process.poll() is None:
-            self.process.terminate()
+        self._kill_process()
         super(ProcessWorkerThread, self).kill(record)
 
     def terminate(self):
         "Send termination message."
-        if self.process is not None and self.process.poll() is None:
-            self.process.terminate()
+        self._kill_process()
         super(ProcessWorkerThread, self).terminate()
-        self.join()
 
 
 class SimTeamController(Controller):
@@ -402,6 +440,7 @@ class SimTeamController(Controller):
 
     def submit_work(self, proposal):
         "Submit a work event."
+        logger.debug("Accept eval proposal")
         self.workers = self.workers-1
         record = self.new_feval(proposal.args)
         proposal.record = record
@@ -410,6 +449,7 @@ class SimTeamController(Controller):
         def event():
             "Closure for marking record done at some later point."
             if not record.is_done():
+                logger.debug("Finished evaluation")
                 record.complete(self.objective(*record.params))
                 self.workers = self.workers + 1
 
@@ -417,13 +457,16 @@ class SimTeamController(Controller):
 
     def kill_work(self, proposal):
         "Submit a kill event."
+        logger.debug("Accept kill proposal")
         record = proposal.args[0]
+        proposal.accept()
 
         def event():
             """Closure for canceling a function evaluation
             NB: This is a separate event because it will eventually have delay!
             """
             if not record.is_done():
+                logger.debug("Finished killing evaluation")
                 record.kill()
                 self.workers = self.workers + 1
 
@@ -454,6 +497,7 @@ class SimTeamController(Controller):
             elif proposal.action == 'kill' and not proposal.args[0].is_done():
                 self.kill_work(proposal)
             else:
+                logger.debug("Reject proposal")
                 proposal.reject()
                 self.advance_time()
 
