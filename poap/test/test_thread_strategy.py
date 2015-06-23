@@ -44,7 +44,7 @@ def main():
                                                        0.0, 1.0, 20))
     controller.strategy = strategy
     result = controller.run()
-    print(result.value, result.params)
+    print("Final: {0:.3e} @ {1}".format(result.value, result.params))
 
 
 if __name__ == '__main__':

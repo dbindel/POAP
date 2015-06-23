@@ -28,7 +28,7 @@ class DummySim(ProcessWorkerThread):
 
 def main():
     "Testing routine."
-    logging.basicConfig(format="%(name)-14s: %(levelname)-8s %(message)s",
+    logging.basicConfig(format="%(name)-18s: %(levelname)-8s %(message)s",
                         level=logging.INFO)
 
     samples = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]
@@ -43,7 +43,7 @@ def main():
         controller.launch_worker(DummySim(controller))
 
     result = controller.run()
-    print('Final', result.value, result.params)
+    print("Final: {0:.3e} @ {1}".format(result.value, result.params))
 
 
 if __name__ == '__main__':

@@ -22,7 +22,7 @@ def main():
                   FixedSampleStrategy(random_generator())]
     controller.strategy = SimpleMergedStrategy(controller, strategies)
     result = controller.run()
-    print(result.value, result.params)
+    print("Final: {0:.3e} @ {1}".format(result.value, result.params))
 
 
 if __name__ == '__main__':

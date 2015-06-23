@@ -40,7 +40,7 @@ def main():
     controller = SerialController(lambda x: (x-0.123)*(x-0.123))
     controller.strategy = CoroutineStrategy(golden_coroutine(0.0, 1.0, 20))
     result = controller.run()
-    print(result.value, result.params)
+    print("Final: {0:.3e} @ {1}".format(result.value, result.params))
 
 
 if __name__ == '__main__':

@@ -16,7 +16,7 @@ def add_monitor(controller, timeout):
         "Report progress of the optimization, roughly once a second."
         record = controller.best_point()
         if record:
-            logger.info("Best point {0} @ {1}".format(
+            logger.info("Best point {0:.3e} @ {1}".format(
                 record.value, record.params))
         else:
             logger.info("No points yet")
