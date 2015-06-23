@@ -415,6 +415,9 @@ class ProcessWorkerThread(BaseWorkerThread):
 class SimTeamController(Controller):
     """Simulated parallel optimization controller.
 
+    Run events in simulated time.  If two events are scheduled at the
+    same time, we prioritize by when the event was added to the queue.
+
     Attributes:
         strategy: Strategy for choosing optimization actions.
         objective: Objective function
@@ -433,6 +436,7 @@ class SimTeamController(Controller):
         self.workers = workers
         self.time = 0
         self.time_events = []
+        self.event_id = 0
 
     def can_work(self):
         "Check if there are workers available."
@@ -441,7 +445,7 @@ class SimTeamController(Controller):
     def submit_work(self, proposal):
         "Submit a work event."
         logger.debug("Accept eval proposal")
-        self.workers = self.workers-1
+        self.workers -= 1
         record = self.new_feval(proposal.args)
         proposal.record = record
         proposal.accept()
@@ -451,7 +455,7 @@ class SimTeamController(Controller):
             if not record.is_done():
                 logger.debug("Finished evaluation")
                 record.complete(self.objective(*record.params))
-                self.workers = self.workers + 1
+                self.workers += 1
 
         self.add_timer(self.delay(), event)
 
@@ -475,21 +479,25 @@ class SimTeamController(Controller):
     def advance_time(self):
         "Advance time to the next event."
         assert self.time_events, "Deadlock detected!"
-        time, event = heapq.heappop(self.time_events)
+        time, id, event = heapq.heappop(self.time_events)
         self.time = time
         event()
 
     def add_timer(self, timeout, event):
         "Add new timer event."
-        heapq.heappush(self.time_events, (self.time + timeout, event))
+        heapq.heappush(self.time_events,
+                       (self.time + timeout, self.event_id, event))
+        self.event_id += 1
 
     def _run(self, merit=None):
         "Run the optimization and return the best value."
         while True:
             proposal = self.strategy.propose_action()
             if not proposal:
+                logger.debug("Advance")
                 self.advance_time()
             elif proposal.action == 'terminate':
+                logger.debug("Accepted terminate proposal")
                 proposal.accept()
                 return self.best_point(merit=merit)
             elif proposal.action == 'eval' and self.can_work():
@@ -524,7 +532,7 @@ class ScriptedController(Controller):
         Controller.__init__(self)
         self._can_work = True
 
-    def add_timer(self):
+    def add_timer(self, timeout, callback):
         "Add timer."
         assert False, "Timers not available in ScriptedController."
 
