@@ -4,10 +4,12 @@ Test fixed sampling strategy.
 
 import time
 import random
+import logging
 from poap.strategy import FixedSampleStrategy
 from poap.strategy import CheckWorkerStrategy
 from poap.controller import ThreadController
 from poap.controller import BasicWorkerThread
+from poap.test.monitor import add_monitor
 
 
 def objective(x):
@@ -18,25 +20,19 @@ def objective(x):
 
 def main():
     "Testing routine."
+    logging.basicConfig(format="%(name)-18s: %(levelname)-8s %(message)s",
+                        level=logging.INFO)
+
     samples = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]
     controller = ThreadController()
     strategy = FixedSampleStrategy(samples)
     strategy = CheckWorkerStrategy(controller, strategy)
     controller.strategy = strategy
-
-    def monitor():
-        "Report progress of the optimization, roughly once a second."
-        record = controller.best_point()
-        if record:
-            controller.lprint(record.value, record.params)
-        else:
-            controller.lprint('No points yet')
-        controller.add_timer(1, monitor)
+    add_monitor(controller, 1)
 
     for _ in range(5):
         controller.launch_worker(BasicWorkerThread(controller, objective))
 
-    controller.add_timer(1, monitor)
     result = controller.run()
     print('Final', result.value, result.params)
 

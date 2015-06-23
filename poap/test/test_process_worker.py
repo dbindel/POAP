@@ -2,14 +2,14 @@
 Test shell-out to another process.
 """
 
-import time
-import random
 import subprocess
+import logging
 from poap.strategy import FixedSampleStrategy
 from poap.strategy import CheckWorkerStrategy
 from poap.strategy import ChaosMonkeyStrategy
 from poap.controller import ThreadController
 from poap.controller import ProcessWorkerThread
+from poap.test.monitor import add_monitor
 
 
 class DummySim(ProcessWorkerThread):
@@ -20,35 +20,28 @@ class DummySim(ProcessWorkerThread):
         data = self.process.communicate()[0]
         try:
             self.finish_success(record, float(data))
-            self.lprint("Success: {0}".format(record.params))
+            logging.info("Success: {0}".format(record.params))
         except ValueError:
             self.finish_failure(record)
-            self.lprint("Failure: {0}".format(record.params))
+            logging.info("Failure: {0}".format(record.params))
 
 
 def main():
     "Testing routine."
+    logging.basicConfig(format="%(name)-14s: %(levelname)-8s %(message)s",
+                        level=logging.INFO)
+
     samples = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]
     controller = ThreadController()
     strategy = FixedSampleStrategy(samples)
     strategy = CheckWorkerStrategy(controller, strategy)
-    strategy = ChaosMonkeyStrategy(controller, strategy,
-                                   logger=controller.lprint, mtbf=3)
+    strategy = ChaosMonkeyStrategy(controller, strategy, mtbf=3)
     controller.strategy = strategy
-    
-    def monitor():
-        "Report progress of the optimization, roughly once a second."
-        record = controller.best_point()
-        if record:
-            controller.lprint(record.value, record.params)
-        else:
-            controller.lprint('No points yet')
-        controller.add_timer(1, monitor)
+    add_monitor(controller, 1)
 
     for _ in range(5):
         controller.launch_worker(DummySim(controller))
 
-    controller.add_timer(1, monitor)
     result = controller.run()
     print('Final', result.value, result.params)
 

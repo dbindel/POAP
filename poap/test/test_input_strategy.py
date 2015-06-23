@@ -2,49 +2,43 @@
 Test external input strategy.
 """
 
-import time
 import random
-import threading
+import logging
 from poap.strategy import FixedSampleStrategy
 from poap.strategy import CheckWorkerStrategy
 from poap.strategy import InputStrategy
-from poap.controller import ThreadController
-from poap.controller import BasicWorkerThread
+from poap.controller import SimTeamController
+from poap.test.monitor import add_monitor
 
 
 def objective(x):
-    "Objective function -- run for about five seconds before returning."
-    time.sleep(5 + random.random())
+    "Objective function"
     return (x-0.123)*(x-0.123)
+
+
+def delay():
+    "Run for about five seconds before returning."
+    return 5 + random.random()
 
 
 def main():
     "Testing routine."
+    logging.basicConfig(format="%(name)-18s: %(levelname)-8s %(message)s",
+                        level=logging.INFO)
+
     samples = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]
-    controller = ThreadController()
+    controller = SimTeamController(objective, delay, 5)
     strategy = FixedSampleStrategy(samples)
     strategy = CheckWorkerStrategy(controller, strategy)
     strategy = InputStrategy(controller, strategy)
     controller.strategy = strategy
-
-    def monitor():
-        "Report progress of the optimization, roughly once a second."
-        record = controller.best_point()
-        if record:
-            controller.lprint(record.value, record.params)
-        else:
-            controller.lprint('No points yet')
-        controller.add_timer(1, monitor)
-
-    for _ in range(5):
-        controller.launch_worker(BasicWorkerThread(controller, objective))
+    add_monitor(controller, 1)
 
     def shutdown():
-        print("Initiating external shutdown")
+        logging.info("Initiating external shutdown")
         strategy.terminate()
-    threading.Timer(7, shutdown).start()
-    
-    controller.add_timer(1, monitor)
+    controller.add_timer(7.0, shutdown)
+
     result = controller.run()
     print('Final', result.value, result.params)
 
