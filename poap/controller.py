@@ -180,12 +180,6 @@ class ThreadController(Controller):
         logger.debug("Wake thread controller")
         self.add_message()
 
-    def lprint(self, *args):
-        "Locking I/O."
-        self.io_lock.acquire()
-        print("{0}".format(*args))
-        self.io_lock.release()
-
     def add_timer(self, timeout, callback):
         "Add a task to be executed after a timeout (e.g. for monitoring)."
         thread = threading.Timer(timeout, lambda: self.add_message(callback))
@@ -304,10 +298,6 @@ class BaseWorkerThread(threading.Thread):
         else:
             logger.debug("Wait on worker thread join")
             self.join()
-
-    def lprint(self, *args):
-        "Print log message at controller"
-        self.controller.lprint(*args)
 
     def add_message(self, message):
         "Send message to be executed at the controller."
