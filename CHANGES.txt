@@ -1,3 +1,8 @@
+v0.1.9, 2015-06-24
+	Modified InputStrategy to decorate received proposals with callbacks.
+	Changed record status functions (is_done, etc) to properties.
+	Added logging infrastructure via logging module.
+
 v0.1.8, 2015-06-22
 	Bugfix: merit argument not passed through run in ThreadController
 
