@@ -52,7 +52,7 @@ class Controller(object):
 
     def best_point(self, merit=None):
         "Return the best point in the database."
-        fcomplete = [f for f in self.fevals if f.status == 'completed']
+        fcomplete = [f for f in self.fevals if f.is_completed]
         if merit is None:
             def merit(r):
                 return r.value
@@ -246,7 +246,7 @@ class ThreadController(Controller):
                 return self.best_point(merit=merit)
             elif proposal.action == 'eval' and self.can_work():
                 self._submit_work(proposal)
-            elif proposal.action == 'kill' and not proposal.args[0].is_done():
+            elif proposal.action == 'kill' and not proposal.args[0].is_done:
                 logger.debug("Accept kill proposal")
                 record = proposal.args[0]
                 proposal.accept()
@@ -442,7 +442,7 @@ class SimTeamController(Controller):
 
         def event():
             "Closure for marking record done at some later point."
-            if not record.is_done():
+            if not record.is_done:
                 logger.debug("Finished evaluation")
                 record.complete(self.objective(*record.params))
                 self.workers += 1
@@ -459,7 +459,7 @@ class SimTeamController(Controller):
             """Closure for canceling a function evaluation
             NB: This is a separate event because it will eventually have delay!
             """
-            if not record.is_done():
+            if not record.is_done:
                 logger.debug("Finished killing evaluation")
                 record.kill()
                 self.workers = self.workers + 1
@@ -492,7 +492,7 @@ class SimTeamController(Controller):
                 return self.best_point(merit=merit)
             elif proposal.action == 'eval' and self.can_work():
                 self.submit_work(proposal)
-            elif proposal.action == 'kill' and not proposal.args[0].is_done():
+            elif proposal.action == 'kill' and not proposal.args[0].is_done:
                 self.kill_work(proposal)
             else:
                 logger.debug("Reject proposal")
@@ -696,8 +696,11 @@ class Monitor(object):
         pass
 
     def on_update(self, record):
-        "Handle function evaluation update."
-        pass
+        "Handle feval update."
+        if record.is_completed:
+            self.on_complete(record)
+        elif record.is_done:
+            self.on_kill(record)
 
     def on_terminate(self):
         "Handle termination."

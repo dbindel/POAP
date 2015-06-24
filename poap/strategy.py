@@ -141,6 +141,22 @@ class EvalRecord(object):
         self.value = value
         self.update()
 
+    @property
+    def is_pending(self):
+        "Check if status is pending."
+        return self.status == 'pending'
+
+    @property
+    def is_running(self):
+        "Check if status is running."
+        return self.status == 'running'
+
+    @property
+    def is_completed(self):
+        "Check for successful completion of evaluation"
+        return self.status == 'completed'
+
+    @property
     def is_done(self):
         "Check whether the status indicates the evaluation is finished."
         return (self.status == 'completed' or
@@ -231,10 +247,10 @@ class BaseStrategy(object):
 
     def on_update(self, record):
         "Process update."
-        if record.status == 'completed':
+        if record.is_completed:
             logger.debug("Received record completed at base strategy")
             self.on_complete(record)
-        elif record.is_done():
+        elif record.is_done:
             logger.debug("Received record killed at base strategy")
             self.on_kill(record)
         else:
@@ -797,7 +813,7 @@ class MaxEvalStrategy(object):
 
     def on_update(self, record):
         "On every completion, increment the counter."
-        if record.status == 'completed':
+        if record.is_completed:
             self.counter += 1
         logger.debug("MaxEvalStrategy: completed {0}/{1}".format(
             self.counter, self.max_counter))
@@ -879,10 +895,10 @@ class ChaosMonkeyStrategy(object):
 
     def on_update(self, record):
         "On every completion, remove from list"
-        if record.status == 'running' and not record.chaos_target:
+        if record.is_running and not record.chaos_target:
             record.chaos_target = True
             self.running_fevals.append(record)
-        elif record.is_done() and record.chaos_target:
+        elif record.is_done and record.chaos_target:
             record.chaos_target = False
             self.running_fevals.remove(record)
 
