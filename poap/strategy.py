@@ -195,6 +195,18 @@ class BaseStrategy(object):
         proposal.add_callback(self.on_terminate_reply)
         return proposal
 
+    def decorate_proposal(self, proposal):
+        "Add a callback to an existing proposal (for nested strategies)."
+        if proposal is None:
+            return proposal
+        elif proposal.action == 'eval':
+            proposal.add_callback(self.on_reply)
+        elif proposal.action == 'kill':
+            proposal.add_callback(self.on_kill_reply)
+        elif proposal.action == 'terminate':
+            proposal.add_callback(self.on_terminate)
+        return proposal
+
     def on_reply(self, proposal):
         "Default handling of eval proposal."
         logger.debug("Receive proposal reply at base strategy")
@@ -857,7 +869,7 @@ class InputStrategy(BaseStrategy):
     def propose_action(self):
         if not self.retry.empty():
             return self.retry.get()
-        return self.strategy.propose_action()
+        return self.decorate_proposal(self.strategy.propose_action())
 
 
 class ChaosMonkeyStrategy(object):
