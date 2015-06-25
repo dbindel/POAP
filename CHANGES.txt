@@ -1,3 +1,6 @@
+v0.1.10, 2015-06-25
+	Bugfix: RetryStrategy should not delete proposal.accepted on resubmit
+
 v0.1.9, 2015-06-24
 	Modified InputStrategy to decorate received proposals with callbacks.
 	Changed record status functions (is_done, etc) to properties.

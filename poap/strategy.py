@@ -329,7 +329,7 @@ class RetryStrategy(BaseStrategy):
     def _resubmit(self, proposal):
         "Recycle a previously-submitted proposal."
         logger.debug("Resubmitting retry proposal")
-        del proposal.accepted
+        proposal.accepted = False
         self.put(proposal)
 
     def on_reply_accept(self, proposal):
