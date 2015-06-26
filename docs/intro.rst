@@ -216,3 +216,36 @@ Process worker thread
 .. autoclass:: poap.controller.ProcessWorkerThread
    :members:
 
+TCP server
+==========
+
+The TCP server class opens a TCP socket to which workers can connect.
+This is useful in a cluster setting, for example, where the workers
+should run on compute nodes distinct from the node where the
+controller is running.  Note that the exact wire format used by
+the server can be overridden (e.g. so that the client doesn't have to
+be written in Python).
+
+Basic server
+------------
+
+.. autoclass:: poap.tcpserve.ThreadedTCPServer
+   :members:
+
+TCP worker base class
+---------------------
+
+.. autoclass:: poap.tcpserve.SocketWorker
+   :members:
+
+Simple TCP worker
+-----------------
+
+.. autoclass:: poap.tcpserve.SimpleSocketWorker
+   :members:
+
+Subprocess TCP worker
+---------------------
+
+.. autoclass:: poap.tcpserve.ProcessSocketWorker
+   :members:

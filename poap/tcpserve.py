@@ -1,0 +1,280 @@
+import socket
+import threading
+import pickle
+import logging
+
+try:
+    import socketserver
+except ImportError:
+    import SocketServer as socketserver
+
+from poap.controller import ThreadController
+
+
+logger = logging.getLogger(__name__)
+
+
+class SocketWorkerHandler(socketserver.BaseRequestHandler):
+    """Manage a remote worker for a thread controller.
+
+    The SocketWorkerHandler is a request handler for incoming workers.
+    It implements the socketserver request handler interface, and also
+    the worker interface expected by the ThreadController.
+    """
+
+    def eval(self, record):
+        "Send an evaluation request to remote worker"
+        logger.debug("Send eval to worker")
+        self.records[id(record)] = record
+        try:
+            self.request.send(
+                self.server.marshall('eval', id(record), record.params))
+        except Exception as e:
+            logger.warning("In eval: {0}".format(e))
+            self._cleanup(record)
+
+    def kill(self, record):
+        "Send a kill request to a remote worker"
+        logger.debug("Send kill to worker")
+        try:
+            self.request.send(
+                self.server.marshall('kill', id(record)))
+        except socket.error as e:
+            logger.warning("In kill: {0}".format(e))
+            self._cleanup(record)
+
+    def terminate(self):
+        "Send a termination request to a remote worker"
+        if not self.running:
+            return
+        logger.debug("Send terminate to worker")
+        try:
+            self.running = False
+            self.request.send(self.server.marshall('terminate'))
+            self.request.close()
+        except socket.error as e:
+            logger.warning("In terminate: {0}".format(e))
+
+    def _handle_message(self, args):
+        "Receive a record status message"
+        mname = args[0]
+        record = self.records[args[1]]
+        controller = self.server.controller
+        if mname in self.server.message_handlers:
+            handler = self.server.message_handlers
+            controller.add_message(lambda: handler(record, *args[2:]))
+        else:
+            method = getattr(record, mname)
+            controller.add_message(lambda: method(*args[2:]))
+        if mname == 'complete' or mname == 'kill':
+            logger.debug("Re-queueing worker")
+            controller.add_worker(self)
+
+    def _cleanup(self, record):
+        "Clean up an incomplete record assigned to this worker."
+        def killrec():
+            if not record.is_done:
+                logger.debug("Kill {0}".format(record.params))
+                record.kill()
+        self.server.controller.add_message(killrec)
+
+    def handle(self):
+        "Main event loop called from SocketServer"
+        self.records = {}
+        self.running = True
+        self.server.controller.add_term_callback(self.terminate)
+        try:
+            self.server.controller.add_worker(self)
+            while self.running:
+                logger.debug("Waiting for worker input")
+                data = self.request.recv(4096)
+                if not data:
+                    return
+                args = self.server.unmarshall(data)
+                self._handle_message(args)
+        except socket.error as e:
+            logger.debug("Exiting worker: {0}".format(e))
+        finally:
+            for rec_id, record in self.records.items():
+                self._cleanup(record)
+            logger.debug("Leaving worker thread")
+
+
+class ThreadedTCPServer(socketserver.ThreadingMixIn,
+                        socketserver.TCPServer, object):
+    """SocketServer interface for workers to connect to controller.
+
+    The socket server interface lets workers connect to a given
+    TCP/IP port and exchange updates with the controller.
+
+    The server sends messages of the form
+
+        ('eval', record_id, args)
+        ('kill', record_id)
+        ('terminate')
+
+    The default messages received are
+
+        ('running', record_id)
+        ('kill', record_id)
+        ('complete', record_id)
+
+    The set of handlers can also be extended with a dictionary of
+    named callbacks to be invoked whenever a record update comes in.
+    For example, to set a lower bound field, we might use the handler
+
+        def set_lb(rec, value):
+            rec.lb = value
+        handlers = {'lb' : set_lb }
+
+    This is useful for adding new types of updates without mucking
+    around in the EvalRecord implementation.
+
+    Attributes:
+        controller: ThreadController that manages the optimization
+        handlers: dictionary of specialized message handlers
+        strategy: redirects to the controller strategy
+    """
+
+    def __init__(self, host="localhost", port=9999,
+                 strategy=None, handlers={}):
+        "Initialize the controller on the given (host,port) address"
+        super(ThreadedTCPServer, self).__init__((host, port),
+                                                SocketWorkerHandler)
+        self.message_handlers = handlers
+        self.controller = ThreadController()
+        self.controller.strategy = strategy
+        self.controller.add_term_callback(self.shutdown)
+
+    def marshall(self, *args):
+        "Convert an argument list to wire format."
+        return pickle.dumps(args)
+
+    def unmarshall(self, data):
+        "Convert wire format back to Python arg list."
+        return pickle.loads(data)
+
+    @property
+    def strategy(self):
+        return self.controller.strategy
+
+    @strategy.setter
+    def strategy(self, strategy):
+        self.controller.strategy = strategy
+
+    def run(self, merit=lambda r: r.value):
+        thread = threading.Thread(target=self.controller.run)
+        thread.start()
+        self.serve_forever()
+        thread.join()
+        return self.controller.best_point(merit=merit)
+
+
+class SocketWorker(object):
+    """Base class for workers that connect to SocketServer interface
+
+    The socket server interface is a server to which workers can
+    connect.  The socket worker is the client to that interface.  It
+    connects to a given TCP/IP port, then attempts to do work on the
+    controller's behalf.
+
+    Attributes:
+        running: True if the socket is active
+    """
+
+    def __init__(self, host="localhost", port=9999):
+        "Initialize the SocketWorker"
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.connect((host, port))
+        self.running = True
+
+    def marshall(self, *args):
+        "Marshall data to wire format"
+        return pickle.dumps(args)
+
+    def unmarshall(self, data):
+        "Convert data from wire format back to Python tuple"
+        return pickle.loads(data)
+
+    def send(self, *args):
+        "Send a message to the controller"
+        self.sock.send(self.marshall(*args))
+
+    def _run(self):
+        "Run a message from the controller"
+        if not self.running:
+            return
+        data = self.unmarshall(self.sock.recv(4096))
+        method = getattr(self, data[0])
+        method(*data[1:])
+
+    def eval(self, record_id, params):
+        "Compute a function value"
+        pass
+
+    def kill(self, record_id, params):
+        "Kill a function evaluation"
+        pass
+
+    def terminate(self):
+        "Terminate the worker"
+        self.running = False
+
+    def run(self, loop=True):
+        "Main loop"
+        try:
+            self._run()
+            while loop and self.running:
+                self._run()
+        except socket.error as e:
+            logger.warning("Exit loop: {0}".format(e))
+        finally:
+            self.sock.close()
+
+
+class SimpleSocketWorker(SocketWorker):
+    """Simple socket worker that runs a local objective function
+
+    The SimpleSocketWorker is a socket worker that runs a local Python
+    function and returns the result.  It is probably mostly useful for
+    testing -- the ProcessSocketWorker is a better option for external
+    simulations.
+    """
+
+    def __init__(self, objective, host="localhost", port=9999):
+        SocketWorker.__init__(self, host, port)
+        self.objective = objective
+
+    def eval(self, record_id, params):
+        value = self.objective(*params)
+        self.send('complete', record_id, value)
+
+
+class ProcessSocketWorker(SocketWorker):
+    """Socket worker that runs an evaluation in a subprocess
+
+    The ProcessSocketWorker is a base class for simulations that run a
+    simulation in an external subprocess.  This class provides functionality
+    just to allow graceful termination of the external simulations.
+
+    Attributes:
+        process: Handle for external subprocess
+    """
+
+    def __init__(self):
+        "Initialize the worker"
+        SocketWorker.__init__(self)
+        self.process = None
+
+    def kill_process(self):
+        "Kill the child process"
+        if self.process is not None and self.process.poll() is None:
+            logger.debug("ProcessSocketWorker is killing subprocess")
+            self.process.terminate()
+
+    def kill(self, record_id):
+        self.kill_process()
+
+    def terminate(self):
+        self.kill_process()
+        SocketWorker.terminate(self)

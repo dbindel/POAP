@@ -373,6 +373,7 @@ class RetryStrategy(BaseStrategy):
         "Resubmit proposal for killed or cancelled eval+retry"
         self.num_eval_running -= 1
         self.num_eval_pending += 1
+        del record.retry.record
         self._resubmit(record.retry)
 
 
