@@ -1,3 +1,4 @@
+import time
 import socket
 import threading
 import pickle
@@ -182,11 +183,18 @@ class SocketWorker(object):
         running: True if the socket is active
     """
 
-    def __init__(self, host="localhost", port=9999):
+    def __init__(self, host="localhost", port=9999, retries=0):
         "Initialize the SocketWorker"
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.connect((host, port))
-        self.running = True
+        self.running = False
+        while not self.running and retries >= 0:
+            try:
+                self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.sock.connect((host, port))
+                self.running = True
+            except socket.error as e:
+                logger.warning("Worker could not connect: {0}".format(e))
+                retries -= 1
+                time.sleep(1)
 
     def marshall(self, *args):
         "Marshall data to wire format"
@@ -241,8 +249,8 @@ class SimpleSocketWorker(SocketWorker):
     simulations.
     """
 
-    def __init__(self, objective, host="localhost", port=9999):
-        SocketWorker.__init__(self, host, port)
+    def __init__(self, objective, host="localhost", port=9999, retries=0):
+        SocketWorker.__init__(self, host, port, retries)
         self.objective = objective
 
     def eval(self, record_id, params):
@@ -261,9 +269,9 @@ class ProcessSocketWorker(SocketWorker):
         process: Handle for external subprocess
     """
 
-    def __init__(self):
+    def __init__(self, objective, host="localhost", port=9999, retries=0):
         "Initialize the worker"
-        SocketWorker.__init__(self)
+        SocketWorker.__init__(self, host, port, retries)
         self.process = None
 
     def kill_process(self):
