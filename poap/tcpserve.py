@@ -181,10 +181,20 @@ class SocketWorker(object):
 
     Attributes:
         running: True if the socket is active
+        sock: Worker TCP socket
     """
 
     def __init__(self, host="localhost", port=9999, retries=0):
-        "Initialize the SocketWorker"
+        """Initialize the SocketWorker.
+
+        The constructor tries to open the socket; on failure, it keeps
+        trying up to retries times, once per second.
+
+        Args:
+            host: host name or IP
+            port: port number
+            retries: number of times to retry the connection
+        """
         self.running = False
         while not self.running and retries >= 0:
             try:
