@@ -14,6 +14,7 @@ test: dummy_sim
 	python test_simteam_controller.py
 	python test_thread_controller.py
 	python test_thread_strategy.py
+	python test_tcpserve.py
 
 .PHONY: nose
 nose:
