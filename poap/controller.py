@@ -173,7 +173,6 @@ class ThreadController(Controller):
         Controller.__init__(self)
         self.workers = Queue.Queue()
         self.messages = Queue.Queue()
-        self.io_lock = threading.Lock()
 
     def ping(self):
         "Tell controller to consult strategies when possible"
