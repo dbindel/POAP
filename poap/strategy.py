@@ -28,12 +28,18 @@ class Proposal(object):
     proposal is accepted, the controller adds an evaluation record to the
     proposal before notifying subscribers.
 
+    NB: Callbacks that handle proposal accept/reject should be
+    insensitive to order: it is important *not* to modify attributes
+    that might be used by later callbacks (e.g. the proposal.accepted
+    flag).
+
     Attributes:
         action: String describing the action
         args: Tuple of arguments to pass to the action
         accepted: Flag set on accept/reject decision
         callbacks: Functions to call on accept/reject of action
         record: Evaluation record for accepted evaluation proposals
+
     """
 
     def __init__(self, action, *args):
@@ -91,11 +97,16 @@ class EvalRecord(object):
     results.  The nature of these intermediate results (lower bounds,
     initial estimates, etc) is somewhat application-dependent.
 
+    NB: Callbacks that handle record updates should be insensitive to
+    order: it is important *not* to modify attributes that might be
+    used by later callbacks (e.g. the proposal.accepted flag).
+
     Attributes:
         params: Evaluation point for the function
         status: Status of the evaluation (pending, running, killed, completed)
         value: Return value (if completed)
         callbacks: Functions to call on status updates
+
     """
 
     def __init__(self, params, status='pending'):
@@ -320,7 +331,9 @@ class RetryStrategy(BaseStrategy):
     def get(self):
         "Pop a proposal from the queue."
         if self.proposals:
-            return self.proposals.popleft()
+            proposal = self.proposals.popleft()
+            proposal.accepted = False
+            return proposal
 
     def empty(self):
         "Check if the queue is empty"
@@ -329,7 +342,6 @@ class RetryStrategy(BaseStrategy):
     def _resubmit(self, proposal):
         "Recycle a previously-submitted proposal."
         logger.debug("Resubmitting retry proposal")
-        proposal.accepted = False
         self.put(proposal)
 
     def on_reply_accept(self, proposal):
