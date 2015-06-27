@@ -137,11 +137,15 @@ class ThreadedTCPServer(socketserver.ThreadingMixIn,
         strategy: redirects to the controller strategy
     """
 
-    def __init__(self, host="localhost", port=9999,
-                 strategy=None, handlers={}):
-        "Initialize the controller on the given (host,port) address"
-        super(ThreadedTCPServer, self).__init__((host, port),
-                                                SocketWorkerHandler)
+    def __init__(self, sockname=("localhost",0), strategy=None, handlers={}):
+        """Initialize the controller on the given (host,port) address
+
+        Args:
+            sockname: Socket on which to serve workers
+            strategy: Strategy object to connect to controllers
+            handlers: Dictionary of specialized message handlers
+        """
+        super(ThreadedTCPServer, self).__init__(sockname, SocketWorkerHandler)
         self.message_handlers = handlers
         self.controller = ThreadController()
         self.controller.strategy = strategy
@@ -163,12 +167,16 @@ class ThreadedTCPServer(socketserver.ThreadingMixIn,
     def strategy(self, strategy):
         self.controller.strategy = strategy
 
-    def run(self, merit=lambda r: r.value):
+    @property
+    def sockname(self):
+        return self.socket.getsockname()
+
+    def run(self, merit=lambda r: r.value, filter=None):
         thread = threading.Thread(target=self.controller.run)
         thread.start()
         self.serve_forever()
         thread.join()
-        return self.controller.best_point(merit=merit)
+        return self.controller.best_point(merit=merit, filter=filter)
 
 
 class SocketWorker(object):
@@ -184,22 +192,21 @@ class SocketWorker(object):
         sock: Worker TCP socket
     """
 
-    def __init__(self, host="localhost", port=9999, retries=0):
+    def __init__(self, sockname, retries=0):
         """Initialize the SocketWorker.
 
         The constructor tries to open the socket; on failure, it keeps
         trying up to retries times, once per second.
 
         Args:
-            host: host name or IP
-            port: port number
+            sockname: (host, port) tuple where server lives
             retries: number of times to retry the connection
         """
         self.running = False
         while not self.running and retries >= 0:
             try:
                 self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self.sock.connect((host, port))
+                self.sock.connect(sockname)
                 self.running = True
             except socket.error as e:
                 logger.warning("Worker could not connect: {0}".format(e))
@@ -259,8 +266,18 @@ class SimpleSocketWorker(SocketWorker):
     simulations.
     """
 
-    def __init__(self, objective, host="localhost", port=9999, retries=0):
-        SocketWorker.__init__(self, host, port, retries)
+    def __init__(self, objective, sockname, retries=0):
+        """Initialize the SimpleSocketWorker.
+
+        The constructor tries to open the socket; on failure, it keeps
+        trying up to retries times, once per second.
+
+        Args:
+            objective: Python objective function
+            sockname: (host, port) tuple where server lives
+            retries: number of times to retry the connection
+        """
+        SocketWorker.__init__(self, sockname, retries)
         self.objective = objective
 
     def eval(self, record_id, params):
@@ -279,9 +296,17 @@ class ProcessSocketWorker(SocketWorker):
         process: Handle for external subprocess
     """
 
-    def __init__(self, objective, host="localhost", port=9999, retries=0):
-        "Initialize the worker"
-        SocketWorker.__init__(self, host, port, retries)
+    def __init__(self, sockname, retries=0):
+        """Initialize the ProcessSocketWorker.
+
+        The constructor tries to open the socket; on failure, it keeps
+        trying up to retries times, once per second.
+
+        Args:
+            sockname: (host, port) tuple where server lives
+            retries: number of times to retry the connection
+        """
+        SocketWorker.__init__(self, sockname, retries)
         self.process = None
 
     def kill_process(self):
