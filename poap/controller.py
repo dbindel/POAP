@@ -315,7 +315,7 @@ class ThreadController(Controller):
                 logger.debug("Reject proposal")
                 proposal.reject()
 
-    def run(self, merit=None, filter=filter):
+    def run(self, merit=None, filter=None):
         """Run the optimization and return the best value.
 
         Args:
