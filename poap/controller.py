@@ -38,7 +38,12 @@ class Controller(object):
         self.term_callbacks = []
 
     def add_timer(self, timeout, callback):
-        "Add a task to be executed after a timeout (e.g. for monitoring)."
+        """Add a task to be executed after a timeout (e.g. for monitoring).
+
+        Args:
+            timeout: Time to wait before execution
+            callback: Function to call when timeout elapses
+        """
         thread = threading.Timer(timeout, callback)
         thread.start()
 
@@ -50,19 +55,41 @@ class Controller(object):
         "Return whether we can currently perform work."
         return True
 
-    def best_point(self, merit=None):
-        "Return the best point in the database."
-        fcomplete = [f for f in self.fevals if f.is_completed]
+    def best_point(self, merit=None, filter=None):
+        """Return the best point in the database satisfying some criterion.
+
+        Args:
+            merit: Function to minimize (default is r.value)
+            filter: Predicate to use for filtering candidates
+
+        Returns:
+            Record minimizing merit() and satisfying filter();
+            or None if nothing satisfies the filter
+        """
+        if filter is None:
+            fcomplete = [f for f in self.fevals if f.is_completed]
+        else:
+            fcomplete = [f for f in self.fevals
+                         if f.is_completed and filter(f)]
         if merit is None:
             def merit(r):
                 return r.value
         if fcomplete:
             return min(fcomplete, key=merit)
 
-    def new_feval(self, params, status='pending'):
+    def new_feval(self, params):
         """Add a function evaluation record to the database.
+
+        In addition to adding the record with status 'pending',
+        we run the feval_callbacks on the new record.
+
+        Args:
+            params: Parameters to the objective function
+
+        Returns:
+            New EvalRecord object
         """
-        record = EvalRecord(params, status=status)
+        record = EvalRecord(params, status='pending')
         self.fevals.append(record)
         logger.debug("Call new feval callbacks")
         for callback in self.feval_callbacks:
@@ -112,7 +139,7 @@ class SerialController(Controller):
         self.objective = objective
         self.skip = skip
 
-    def _run(self, merit=None):
+    def _run(self, merit=None, filter=None):
         "Run the optimization and return the best value."
         while True:
             proposal = self.strategy.propose_action()
@@ -122,7 +149,7 @@ class SerialController(Controller):
             elif proposal.action == 'terminate':
                 logger.debug("Accept termination proposal")
                 proposal.accept()
-                return self.best_point(merit=merit)
+                return self.best_point(merit=merit, filter=filter)
             elif proposal.action == 'eval':
                 logger.debug("Accept eval proposal")
                 proposal.record = self.new_feval(proposal.args)
@@ -133,10 +160,19 @@ class SerialController(Controller):
                 logger.debug("Reject proposal")
                 proposal.reject()
 
-    def run(self, merit=None):
-        "Run the optimization and return the best value."
+    def run(self, merit=None, filter=None):
+        """Run the optimization and return the best value.
+
+        Args:
+            merit: Function to minimize (default is r.value)
+            filter: Predicate to use for filtering candidates
+
+        Returns:
+            Record minimizing merit() and satisfying filter();
+            or None if nothing satisfies the filter
+        """
         try:
-            return self._run(merit=merit)
+            return self._run(merit=merit, filter=filter)
         finally:
             self.call_term_callbacks()
 
@@ -180,7 +216,12 @@ class ThreadController(Controller):
         self.add_message()
 
     def add_timer(self, timeout, callback):
-        "Add a task to be executed after a timeout (e.g. for monitoring)."
+        """Add a task to be executed after a timeout (e.g. for monitoring).
+
+        Args:
+            timeout: Time to wait before execution
+            callback: Function to call when timeout elapses
+        """
         thread = threading.Timer(timeout, lambda: self.add_message(callback))
         thread.start()
 
@@ -232,7 +273,7 @@ class ThreadController(Controller):
         while not self.messages.empty():
             self._run_message()
 
-    def _run(self, merit=None):
+    def _run(self, merit=None, filter=filter):
         "Run the optimization and return the best value."
         while True:
             self._run_queued_messages()
@@ -242,7 +283,7 @@ class ThreadController(Controller):
             elif proposal.action == 'terminate':
                 logger.debug("Accept terminate proposal")
                 proposal.accept()
-                return self.best_point(merit=merit)
+                return self.best_point(merit=merit, filter=filter)
             elif proposal.action == 'eval' and self.can_work():
                 self._submit_work(proposal)
             elif proposal.action == 'kill' and not proposal.args[0].is_done:
@@ -254,9 +295,19 @@ class ThreadController(Controller):
                 logger.debug("Reject proposal")
                 proposal.reject()
 
-    def run(self, merit=None):
+    def run(self, merit=None, filter=filter):
+        """Run the optimization and return the best value.
+
+        Args:
+            merit: Function to minimize (default is r.value)
+            filter: Predicate to use for filtering candidates
+
+        Returns:
+            Record minimizing merit() and satisfying filter();
+            or None if nothing satisfies the filter
+        """
         try:
-            return self._run(merit=merit)
+            return self._run(merit=merit, filter=filter)
         finally:
             self.call_term_callbacks()
 
@@ -473,12 +524,17 @@ class SimTeamController(Controller):
         event()
 
     def add_timer(self, timeout, event):
-        "Add new timer event."
+        """Add a task to be executed after a timeout (e.g. for monitoring).
+
+        Args:
+            timeout: Time to wait before execution
+            callback: Function to call when timeout elapses
+        """
         heapq.heappush(self.time_events,
                        (self.time + timeout, self.event_id, event))
         self.event_id += 1
 
-    def _run(self, merit=None):
+    def _run(self, merit=None, filter=None):
         "Run the optimization and return the best value."
         while True:
             proposal = self.strategy.propose_action()
@@ -488,7 +544,7 @@ class SimTeamController(Controller):
             elif proposal.action == 'terminate':
                 logger.debug("Accepted terminate proposal")
                 proposal.accept()
-                return self.best_point(merit=merit)
+                return self.best_point(merit=merit, filter=filter)
             elif proposal.action == 'eval' and self.can_work():
                 self.submit_work(proposal)
             elif proposal.action == 'kill' and not proposal.args[0].is_done:
@@ -498,10 +554,19 @@ class SimTeamController(Controller):
                 proposal.reject()
                 self.advance_time()
 
-    def run(self, merit=None):
-        "Run the optimization and return the best value."
+    def run(self, merit=None, filter=None):
+        """Run the optimization and return the best value.
+
+        Args:
+            merit: Function to minimize (default is r.value)
+            filter: Predicate to use for filtering candidates
+
+        Returns:
+            Record minimizing merit() and satisfying filter();
+            or None if nothing satisfies the filter
+        """
         try:
-            return self._run(merit=merit)
+            return self._run(merit=merit, filter=filter)
         finally:
             self.call_term_callbacks()
 
