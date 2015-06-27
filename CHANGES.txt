@@ -1,3 +1,6 @@
+v0.1.12, 2015-06-27
+         Fixed RetryStrategy to avoid adding repeat callbacks on retry
+
 v0.1.11, 2015-06-26
 	Added socket server functionality for remote workers (tcpserve)
 
