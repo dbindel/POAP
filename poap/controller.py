@@ -134,7 +134,12 @@ class SerialController(Controller):
     """
 
     def __init__(self, objective, skip=False):
-        "Initialize the controller."
+        """Initialize the controller.
+
+        Args:
+            objective: Objective function
+            skip: if True, skip over "None" proposals
+        """
         Controller.__init__(self)
         self.objective = objective
         self.skip = skip
@@ -226,20 +231,35 @@ class ThreadController(Controller):
         thread.start()
 
     def add_message(self, message=None):
-        "Queue up a message."
+        """Queue up a message.
+
+        Args:
+            message: callback function with no arguments or None (default)
+                     if None, a dummy message is queued to ping the controller
+        """
         if message is None:
             self.messages.put(lambda: None)
         else:
             self.messages.put(message)
 
     def add_worker(self, worker):
-        "Add a worker and queue a 'wake-up' message."
+        """Add a worker and queue a 'wake-up' message.
+
+        Args:
+            worker: a worker thread object
+        """
         logger.debug("Add worker to thread controller")
         self.workers.put(worker)
-        self.add_message()
+        self.ping()
 
     def launch_worker(self, worker, daemon=False):
-        "Launch and take ownership of a new worker thread."
+        """Launch and take ownership of a new worker thread.
+
+        Args:
+            worker: a worker thread object
+            daemon: if True, the worker is launched in a daemon thread
+                    (default is False)
+        """
         logger.debug("Launch worker in thread controller")
         self.add_worker(worker)
         self.add_term_callback(worker.terminate)
@@ -330,17 +350,30 @@ class BaseWorkerThread(threading.Thread):
         self.queue = Queue.Queue()
 
     def eval(self, record):
-        "Start evaluation."
+        """Start evaluation.
+
+        Args:
+            record: Function evaluation record
+        """
         logger.debug("Queue eval at worker")
         self.queue.put(('eval', record))
 
     def kill(self, record):
-        "Send kill message to worker."
+        """Send kill message to worker.
+
+        Args:
+            record: Function evaluation record
+        """
         logger.debug("Queue kill at worker")
         self.queue.put(('kill', record))
 
     def terminate(self):
-        "Send termination message to worker."
+        """Send termination message to worker.
+
+        NB: if the worker is not running in a daemon thread,
+        a call to the terminate method only returns after the
+        the thread has terminated.
+        """
         logger.debug("Queue terminate at worker")
         self.queue.put(('terminate',))
         if self.daemon:
@@ -469,7 +502,13 @@ class SimTeamController(Controller):
     """
 
     def __init__(self, objective, delay, workers):
-        "Initialize the controller."
+        """Initialize the controller.
+
+        Args:
+            objective: Objective function
+            delay: Time delay function (takes no arguments)
+            workers: Number of workers available in simulation
+        """
         Controller.__init__(self)
         self.objective = objective
         self.delay = delay
