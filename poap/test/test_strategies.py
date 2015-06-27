@@ -141,7 +141,7 @@ def test_coroutine_batch3():
     r2 = c.accept_eval(args=(2,))
     c.no_proposal()
     r1.kill()
-    c.accept_eval(args=(1,))
+    r1 = c.accept_eval(args=(1,))
     r2.complete(2)
     c.no_proposal()
     r1.complete(1)
