@@ -9,6 +9,7 @@ try:
 except ImportError:
     import queue as Queue
 
+import copy
 import threading
 import random
 import logging
@@ -55,8 +56,10 @@ class Proposal(object):
         self.callbacks = []
 
     def copy(self):
-        "Make a copy of the proposal with no callbacks/decorations."
-        return Proposal(self.action, *self.args)
+        "Make a copy of the proposal."
+        proposal = copy.copy(self)
+        proposal.callbacks = copy.copy(self.callbacks)
+        return proposal
 
     def add_callback(self, callback):
         "Add a callback subscriber to the action."
@@ -118,7 +121,7 @@ class EvalRecord(object):
             status: Status of the evaluation (default 'pending')
         """
         self.params = params
-        self.status = status
+        self._status = status
         self.value = None
         self.callbacks = []
 
@@ -138,41 +141,58 @@ class EvalRecord(object):
 
     def running(self):
         "Change status to 'running' and execute callbacks."
-        self.status = 'running'
+        if self.is_done:
+            logger.error("Cannot update record that is done [running]")
+        assert not self.is_done, "Cannot change complete to running"
+        self._status = 'running'
         self.update()
 
     def kill(self):
         "Change status to 'killed' and execute callbacks."
-        self.status = 'killed'
+        if self.is_done:
+            logger.error("Cannot update record that is done [kill]")
+        assert not self.is_done, "Cannot change complete to killed"
+        self._status = 'killed'
         self.update()
 
     def complete(self, value):
         "Change status to 'completed' and execute callbacks."
-        self.status = 'completed'
+        if self.is_done:
+            logger.error("Cannot update record that is done [complete]")
+        assert not self.is_done, "Cannot re-complete"
+        self._status = 'completed'
         self.value = value
         self.update()
 
     @property
+    def status(self):
+        return self._status
+
+    @status.setter
+    def status(self, v):
+        assert not self.is_done, "Cannot complete already-completed record"
+
+    @property
     def is_pending(self):
         "Check if status is pending."
-        return self.status == 'pending'
+        return self._status == 'pending'
 
     @property
     def is_running(self):
         "Check if status is running."
-        return self.status == 'running'
+        return self._status == 'running'
 
     @property
     def is_completed(self):
         "Check for successful completion of evaluation"
-        return self.status == 'completed'
+        return self._status == 'completed'
 
     @property
     def is_done(self):
         "Check whether the status indicates the evaluation is finished."
-        return (self.status == 'completed' or
-                self.status == 'killed' or
-                self.status == 'cancelled')
+        return (self._status == 'completed' or
+                self._status == 'killed' or
+                self._status == 'cancelled')
 
 
 class BaseStrategy(object):
@@ -215,7 +235,7 @@ class BaseStrategy(object):
         elif proposal.action == 'kill':
             proposal.add_callback(self.on_kill_reply)
         elif proposal.action == 'terminate':
-            proposal.add_callback(self.on_terminate)
+            proposal.add_callback(self.on_terminate_reply)
         return proposal
 
     def on_reply(self, proposal):
@@ -293,8 +313,24 @@ class RetryStrategy(BaseStrategy):
 
     The RetryStrategy class manages a queue of proposals to be retried,
     either because they were rejected or because they correspond to
-    a function evaluation.  When a proposal is retried, we retain all
-    callbacks associated with the original version.
+    a function evaluation that was killed.
+
+    If a proposal is submitted to a retry strategy and it has already
+    been marked with the .retry attribute, we do not attempt to manage
+    retries, as another object is assumed to have taken responsibility
+    for retrying the proposal on failure.  This prevents us from having
+    redundant retries.
+
+    When a proposal is submitted to the retry class, we make a copy
+    (the proposal draft) for safe-keeping.  If at any point it is
+    necessary to resubmit, we submit the draft copy to the retry
+    class.  The draft will have any modifications or callbacks that
+    were added before the proposal reached this strategy, and none of
+    those that were added afterward (including those added afterward
+    by the RetryStrategy itself).  The intent is that retried
+    proposals inserted into the strategy hierarchy at the place where
+    they were recorded should require no special treatment to avoid
+    adding multiple copies of callbacks (for example).
 
     Attributes:
         proposals: Queue of outstanding proposals
@@ -307,6 +343,7 @@ class RetryStrategy(BaseStrategy):
         self.proposals = deque([])
         self.num_eval_pending = 0
         self.num_eval_running = 0
+        self._in_flight = {}
 
     @property
     def num_eval_outstanding(self):
@@ -319,40 +356,40 @@ class RetryStrategy(BaseStrategy):
 
     def rput(self, proposal):
         "Put a retry proposal in the queue."
-        if proposal.action == 'eval':
-            proposal.add_callback(self.on_reply)
-            self.num_eval_pending += 1
-        elif proposal.action == 'kill':
-            proposal.add_callback(self.on_kill_reply)
-        elif proposal.action == 'terminate':
-            proposal.add_callback(self.on_terminate_reply)
+        if not hasattr(proposal, 'retry'):
+            logger.debug("Setting up retry")
+            self._set(proposal, proposal.copy())
+            self.retry = True
+            if proposal.action == 'eval':
+                proposal.add_callback(self.on_reply)
+                self.num_eval_pending += 1
+            elif proposal.action == 'kill':
+                proposal.add_callback(self.on_kill_reply)
+            elif proposal.action == 'terminate':
+                proposal.add_callback(self.on_terminate_reply)
+        else:
+            logger.debug("Skip retry setup -- already under management")
         self.put(proposal)
 
     def get(self):
         "Pop a proposal from the queue."
         if self.proposals:
-            proposal = self.proposals.popleft()
-            proposal.accepted = False
-            return proposal
+            return self.proposals.popleft()
 
     def empty(self):
         "Check if the queue is empty"
         return not self.proposals
 
-    def _resubmit(self, proposal):
-        "Recycle a previously-submitted proposal."
-        logger.debug("Resubmitting retry proposal")
-        self.put(proposal)
-
     def on_reply_accept(self, proposal):
         "Process accepted eval+retry proposal"
         logger.debug("Recording accepted eval+retry proposal")
-        proposal.record.retry = proposal
         self.num_eval_pending -= 1
         self.num_eval_running += 1
+        self._rekey(proposal, proposal.record)
 
     def on_reply_reject(self, proposal):
         "Resubmit rejected eval+retry proposal"
+        self.num_eval_pending -= 1
         self._resubmit(proposal)
 
     def on_kill_reply_reject(self, proposal):
@@ -367,14 +404,30 @@ class RetryStrategy(BaseStrategy):
         "Clean up after completed eval+retry"
         logger.debug("Clean up after complete eval+retry")
         self.num_eval_running -= 1
-        del record.retry
+        self._pop(record)
 
     def on_kill(self, record):
         "Resubmit proposal for killed or cancelled eval+retry"
         self.num_eval_running -= 1
-        self.num_eval_pending += 1
-        del record.retry.record
-        self._resubmit(record.retry)
+        self._resubmit(record)
+
+    def _set(self, key, proposal):
+        "Record a retry proposal draft associated with a given key."
+        self._in_flight[id(key)] = proposal
+
+    def _pop(self, key):
+        "Pop a retry proposal draft from the in-flight dictionary"
+        return self._in_flight.pop(id(key))
+
+    def _rekey(self, old_key, new_key):
+        "Change the key on a retry proposal draft."
+        logger.debug("Rekey retry proposal")
+        self._set(new_key, self._pop(old_key))
+
+    def _resubmit(self, key):
+        "Recycle a previously-submitted retry proposal."
+        logger.debug("Resubmitting retry proposal")
+        self.rput(self._pop(key))
 
 
 class FixedSampleStrategy(BaseStrategy):
