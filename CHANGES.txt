@@ -1,3 +1,8 @@
+v0.1.13, 2015-06-27
+	Added filter to Controller.best_point
+	Switched tcpserve classes to take (host,port) as tuples
+	Switched tcpserve tester to use auto-assigned (vs predef) port
+
 v0.1.12, 2015-06-27
          Fixed RetryStrategy to avoid adding repeat callbacks on retry
 
