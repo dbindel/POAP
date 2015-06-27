@@ -9,7 +9,6 @@ from poap.tcpserve import SimpleSocketWorker
 
 
 # Set up default host, port, and time
-PORT=9000
 TIMEOUT=0
 
 
@@ -21,16 +20,9 @@ def f(x):
     return (x-1.23)*(x-1.23)
 
 
-def controller_main():
-    logging.info("Launching controller")
-    strategy = FixedSampleStrategy([1, 2, 3, 4, 5])
-    result = ThreadedTCPServer(port=PORT, strategy=strategy).run()
-    print("Final: {0:.3e} @ {1}".format(result.value, result.params))
-
-
-def worker_main():
-    logging.info("Launching worker")
-    SimpleSocketWorker(f, port=PORT, retries=1).run()
+def worker_main(name):
+    logging.info("Launching worker on port {0}".format(name[1]))
+    SimpleSocketWorker(f, sockname=name, retries=1).run()
 
 
 def main():
@@ -38,13 +30,19 @@ def main():
                         level=logging.INFO)
 
     # Launch controller
-    cthread = threading.Thread(target=controller_main)
+    strategy = FixedSampleStrategy([1, 2, 3, 4, 5])
+    server = ThreadedTCPServer(strategy=strategy)
+    cthread = threading.Thread(target=server.run)
     cthread.start()
+
+    # Get controller port
+    name = server.sockname
+    logging.info("Launch controller at {0}".format(name))
 
     # Launch workers
     wthreads = []
     for k in range(2):
-        wthread = threading.Thread(target=worker_main)
+        wthread = threading.Thread(target=worker_main, args=(name,))
         wthread.start()
         wthreads.append(wthread)
 
@@ -53,10 +51,12 @@ def main():
     for t in wthreads:
         t.join()
 
+    result = server.controller.best_point()
+    print("Final: {0:.3e} @ {1}".format(result.value, result.params))
+
+
 
 if __name__ == '__main__':
     if len(sys.argv) > 1:
-        PORT=int(sys.argv[1])
-    if len(sys.argv) > 2:
-        TIMEOUT=float(sys.argv[2])
+        TIMEOUT=float(sys.argv[1])
     main()
