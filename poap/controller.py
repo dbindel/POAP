@@ -594,6 +594,7 @@ class ScriptedController(Controller):
 
     def no_proposal(self):
         "Assert that next proposed action is None."
+        logger.debug("Script: No proposal")
         assert self.proposal() is None
 
     def accept_eval(self, args=None, pred=None, skip=False):
@@ -607,6 +608,7 @@ class ScriptedController(Controller):
         Returns:
             proposal record
         """
+        logger.debug("Script: accept proposal")
         proposal = self.proposal(skip=skip)
         proposal = self.check_eval(proposal, args=args, pred=pred)
         proposal.record = self.new_feval(proposal.args)
@@ -620,6 +622,7 @@ class ScriptedController(Controller):
             r: record to be killed.
             skip: if True, skip over all None proposals
         """
+        logger.debug("Script: accept kill")
         self.check_kill(self.proposal(skip=skip), r).accept()
 
     def accept_terminate(self, skip=False):
@@ -628,6 +631,7 @@ class ScriptedController(Controller):
         Args:
             skip: if True, skip over all None proposals
         """
+        logger.debug("Script: accept terminate")
         self.check_terminate(self.strategy.propose_action()).accept()
 
     def reject_eval(self, args=None, pred=None, skip=False):
@@ -638,6 +642,7 @@ class ScriptedController(Controller):
             pred: test predicate to run on proposal (if not None)
             skip: if True, skip over all None proposals
         """
+        logger.debug("Script: reject eval")
         proposal = self.proposal(skip=skip)
         self.check_eval(proposal, args=args, pred=pred).reject()
 
@@ -648,6 +653,7 @@ class ScriptedController(Controller):
             r: record to be killed.
             skip: if True, skip over all None proposals
         """
+        logger.debug("Script: reject kill")
         self.check_kill(self.proposal(skip=skip), r).reject()
 
     def reject_terminate(self, skip=False):
@@ -656,10 +662,12 @@ class ScriptedController(Controller):
         Args:
             skip: if True, skip over all None proposals
         """
+        logger.debug("Script: reject terminate")
         self.check_terminate(self.proposal(skip=skip)).reject()
 
     def terminate(self):
         "Terminate the script."
+        logger.debug("Script: Terminate")
         self.call_term_callbacks()
 
 
