@@ -155,6 +155,14 @@ class EvalRecord(object):
         self._status = 'killed'
         self.update()
 
+    def cancel(self):
+        "Change status to 'cancelled' and execute callbacks."
+        if self.is_done:
+            logger.error("Cannot update record that is done [cancel]")
+        assert not self.is_done, "Cannot change complete to cancelled"
+        self._status = 'cancelled'
+        self.update()
+
     def complete(self, value):
         "Change status to 'completed' and execute callbacks."
         if self.is_done:
@@ -186,6 +194,16 @@ class EvalRecord(object):
     def is_completed(self):
         "Check for successful completion of evaluation"
         return self._status == 'completed'
+
+    @property
+    def is_killed(self):
+        "Check whether evaluation is killed"
+        return self._status == 'killed'
+
+    @property
+    def is_cancelled(self):
+        "Check whether evaluation was cancelled"
+        return self._status == 'cancelled'
 
     @property
     def is_done(self):

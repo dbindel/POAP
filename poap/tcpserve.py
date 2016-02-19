@@ -67,7 +67,7 @@ class SocketWorkerHandler(socketserver.BaseRequestHandler):
         else:
             method = getattr(record, mname)
             controller.add_message(lambda: method(*args[2:]))
-        if mname == 'complete' or mname == 'kill':
+        if mname == 'complete' or mname == 'cancel' or mname == 'kill':
             logger.debug("Re-queueing worker")
             controller.add_worker(self)
 
@@ -118,6 +118,7 @@ class ThreadedTCPServer(socketserver.ThreadingMixIn,
 
         ('running', record_id)
         ('kill', record_id)
+        ('cancel', record_id)
         ('complete', record_id)
 
     The set of handlers can also be extended with a dictionary of
@@ -281,8 +282,22 @@ class SimpleSocketWorker(SocketWorker):
         self.objective = objective
 
     def eval(self, record_id, params):
-        value = self.objective(*params)
-        self.send('complete', record_id, value)
+        """Evaluate the function and send back a result.
+
+        If the function evaluation crashes, we send back a 'cancel'
+        request for the record.  If, on the other hand, there is a
+        problem with calling send, we probably want to let the worker
+        error out.
+
+        Args:
+            record_id: Feval record identifier used by server/controller
+            params: Parameters sent to the function to be evaluated
+        """
+        try:
+            msg = ['complete', record_id, self.objective(*params)]
+        except:
+            msg = ['cancel', record_id]
+        self.send(*msg)
 
 
 class ProcessSocketWorker(SocketWorker):

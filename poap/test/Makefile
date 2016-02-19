@@ -16,6 +16,15 @@ test: dummy_sim
 	python test_thread_strategy.py
 	python test_tcpserve.py
 
-.PHONY: nose
-nose:
-	nosetests --with-coverage --cover-package=poap.strategy
+.PHONY: pytest cover clean
+
+pytest:
+	py.test
+
+cover:
+	py.test --cov=.. --cov-report=annotate
+
+clean:
+	rm -f dummy_sim *.pyc
+	rm -f *,cover ../*,cover
+

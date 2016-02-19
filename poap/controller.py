@@ -9,6 +9,7 @@ try:
 except ImportError:
     import queue as Queue
 
+import sys
 import heapq
 import threading
 import logging
@@ -144,7 +145,7 @@ class SerialController(Controller):
         self.objective = objective
         self.skip = skip
 
-    def _run(self, merit=None, filter=None):
+    def _run(self, merit=None, filter=None, reraise=True):
         "Run the optimization and return the best value."
         while True:
             proposal = self.strategy.propose_action()
@@ -159,25 +160,33 @@ class SerialController(Controller):
                 logger.debug("Accept eval proposal")
                 proposal.record = self.new_feval(proposal.args)
                 proposal.accept()
-                value = self.objective(*proposal.record.params)
-                proposal.record.complete(value)
+                try:
+                    value = self.objective(*proposal.record.params)
+                    proposal.record.complete(value)
+                except:
+                    logger.exception(exc_info=sys.exc_info())
+                    proposal.record.cancel()
+                    raise
             else:
                 logger.debug("Reject proposal")
                 proposal.reject()
 
-    def run(self, merit=None, filter=None):
+    def run(self, merit=None, filter=None, reraise=True):
         """Run the optimization and return the best value.
 
         Args:
             merit: Function to minimize (default is r.value)
             filter: Predicate to use for filtering candidates
+            reraise: Flag indicating whether exceptions in the
+              objective function evaluations should be re-raised,
+              terminating the optimization.
 
         Returns:
             Record minimizing merit() and satisfying filter();
             or None if nothing satisfies the filter
         """
         try:
-            return self._run(merit=merit, filter=filter)
+            return self._run(merit=merit, filter=filter, reraise=reraise)
         finally:
             self.call_term_callbacks()
 
@@ -397,10 +406,16 @@ class BaseWorkerThread(threading.Thread):
         self.add_message(lambda: record.complete(value))
         self.add_worker()
 
-    def finish_failure(self, record):
-        "Finish recording failure on a record and add ourselves back."
-        logger.debug("Feval failed")
+    def finish_killed(self, record):
+        "Finish recording killed on a record and add ourselves back."
+        logger.debug("Feval killed")
         self.add_message(record.kill)
+        self.add_worker()
+
+    def finish_cancelled(self, record):
+        "Finish recording cancelled on a record and add ourselves back."
+        logger.debug("Feval cancelled")
+        self.add_message(record.cancel)
         self.add_worker()
 
     def handle_eval(self, record):
@@ -450,7 +465,13 @@ class BasicWorkerThread(BaseWorkerThread):
         self.objective = objective
 
     def handle_eval(self, record):
-        self.finish_success(record, self.objective(*record.params))
+        try:
+            value = self.objective(*record.params)
+            self.finish_success(record, value)
+            logger.debug("Worker finished feval successfully")
+        except:
+            self.finish_cancelled(record)
+            logger.debug("Worker feval exited with exception")
 
 
 class ProcessWorkerThread(BaseWorkerThread):
@@ -532,8 +553,12 @@ class SimTeamController(Controller):
         def event():
             "Closure for marking record done at some later point."
             if not record.is_done:
-                logger.debug("Finished evaluation")
-                record.complete(self.objective(*record.params))
+                try:
+                    record.complete(self.objective(*record.params))
+                    logger.debug("Finished evaluation successfully")
+                except:
+                    record.cancel()
+                    logger.debug("Finished evaluation with exception")
                 self.workers += 1
 
         self.add_timer(self.delay(), event)
@@ -784,6 +809,9 @@ class Monitor(object):
 
         on_new_feval(self, record)
         on_update(self, record)
+        on_complete(self, record)
+        on_kill(self, record)
+        on_cancel(self, record)
         on_terminate(self)
     """
 
@@ -810,8 +838,22 @@ class Monitor(object):
         "Handle feval update."
         if record.is_completed:
             self.on_complete(record)
-        elif record.is_done:
+        elif record.is_killed:
             self.on_kill(record)
+        elif record.is_cancelled:
+            self.on_cancel(record)
+
+    def on_complete(self, record):
+        "Handle feval completion"
+        pass
+
+    def on_kill(self, record):
+        "Handle record killed"
+        pass
+
+    def on_cancel(self, record):
+        "Handle record cancelled"
+        pass
 
     def on_terminate(self):
         "Handle termination."

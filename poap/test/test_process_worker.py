@@ -22,7 +22,7 @@ class DummySim(ProcessWorkerThread):
             self.finish_success(record, float(data))
             logging.info("Success: {0}".format(record.params))
         except ValueError:
-            self.finish_failure(record)
+            self.finish_cancelled(record)
             logging.info("Failure: {0}".format(record.params))
 
 
