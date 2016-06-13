@@ -62,7 +62,7 @@ class SocketWorkerHandler(socketserver.BaseRequestHandler):
         record = self.records[args[1]]
         controller = self.server.controller
         if mname in self.server.message_handlers:
-            handler = self.server.message_handlers
+            handler = self.server.message_handlers[mname]
             controller.add_message(lambda: handler(record, *args[2:]))
         else:
             method = getattr(record, mname)
@@ -119,7 +119,7 @@ class ThreadedTCPServer(socketserver.ThreadingMixIn,
         ('running', record_id)
         ('kill', record_id)
         ('cancel', record_id)
-        ('complete', record_id)
+        ('complete', record_id, value)
 
     The set of handlers can also be extended with a dictionary of
     named callbacks to be invoked whenever a record update comes in.
@@ -238,7 +238,7 @@ class SocketWorker(object):
         "Compute a function value"
         pass
 
-    def kill(self, record_id, params):
+    def kill(self, record_id):
         "Kill a function evaluation"
         pass
 
