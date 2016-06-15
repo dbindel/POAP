@@ -1,3 +1,7 @@
+v0.1.14, 2016-06-15
+	Added MPI functionality for remote workers.
+	Added more careful exception handling.
+
 v0.1.13, 2015-06-27
 	Added filter to Controller.best_point
 	Switched tcpserve classes to take (host,port) as tuples
