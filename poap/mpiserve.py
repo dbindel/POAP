@@ -1,3 +1,9 @@
+"""
+.. module:: mpiserve
+   :synopsis: MPI-based controller server and workers for POAP.
+.. moduleauthor:: David Bindel <bindel@cornell.edu>
+"""
+
 # NB: Must do mpirun with a working mpi4py install.
 #     See https://groups.google.com/forum/#!topic/mpi4py/ULMq-bC1oQA
 
@@ -192,6 +198,22 @@ class MPIMasterHub(MPIHub):
             logger.debug("Re-queueing worker")
             controller.add_worker(self.workers[status.source])
 
+    def optimize(self, merit=None, filter=None):
+        """Run the optimization and return the best value.
+
+        Args:
+            merit: Function to minimize (default is r.value)
+            filter: Predicate to use for filtering candidates
+
+        Returns:
+            Record minimizing merit() and satisfying filter();
+            or None if nothing satisfies the filter
+        """
+        self.start()
+        value = self.controller.run(merit, filter)
+        self.join()
+        return value
+
 
 class MPIWorkerHub(MPIHub):
     """Base class for workers to communicate with a main controller hub.
@@ -313,6 +335,11 @@ class MPIWorker(object):
 
 
 class MPISimpleWorker(MPIWorker):
+    """Worker that calls a Python function.
+
+    The MPISimpleWorker does ordinary Python function evaluations.
+    Requests to kill a running evaluation are simply ignored.
+    """
 
     def __init__(self, f):
         super(MPISimpleWorker, self).__init__()
@@ -332,3 +359,31 @@ class MPISimpleWorker(MPIWorker):
         except:
             logger.warning("Function evaluation failed")
             self.hub.finish_cancelled(record_id)
+
+
+class MPIProcessWorker(MPIWorker):
+    """MPI worker that runs an evaluation in a subprocess
+
+    The MPIProcessWorker is a base class for simulations that run a
+    simulation in an external subprocess.  This class provides functionality
+    just to allow graceful termination of the external simulations.
+
+    Attributes:
+        process: Handle for external subprocess
+    """
+
+    def __init__(self):
+        super(MPIProcessWorker, self).__init__()
+
+    def kill_process(self):
+        "Kill the child process"
+        if self.process is not None and self.process.poll() is None:
+            logger.debug("MPIProcessWorker is killing subprocess")
+            self.process.terminate()
+
+    def kill(self, record_id):
+        self.kill_process()
+
+    def terminate(self):
+        self.kill_process()
+        MPIWorker.terminate(self)
