@@ -28,21 +28,10 @@ def worker_main():
 def main():
     logging.basicConfig(format="%(name)-18s: %(levelname)-8s %(message)s",
                         level=logging.INFO)
-
-    # Launch communication hub
     strategy = FixedSampleStrategy([1, 2, 3, 4, 5])
     server = MPIMasterHub(strategy=strategy)
-    server.start()
-
-    # Run controller
-    server.controller.run()
-
-    # Wait on controller and workers
-    server.join()
-
-    result = server.controller.best_point()
+    result = server.optimize()
     print("Final: {0:.3e} @ {1}".format(result.value, result.params))
-
 
 
 if __name__ == '__main__':
