@@ -1,3 +1,9 @@
+"""
+.. module:: tcpserve
+   :synopsis: TCP-based controller server and workers for POAP.
+.. moduleauthor:: David Bindel <bindel@cornell.edu>
+"""
+
 import time
 import socket
 import threading
