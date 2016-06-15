@@ -25,7 +25,7 @@ organized around three types of interacting objects:
    the optimization.  The strategy may changed proposed objects
    as it is informed of events such as availability of a new
    function value.
-   
+
  - A *controller* accepts or rejects proposals by the strategy
    object, controls and monitors the workers, and informs the
    strategy object of events such as the processing of a proposal
@@ -248,4 +248,51 @@ Subprocess TCP worker
 ---------------------
 
 .. autoclass:: poap.tcpserve.ProcessSocketWorker
+   :members:
+
+MPI server
+==========
+
+The MPI server class manages a controller and workers communicating
+via MPI.  The master process (controller and strategies) run at rank 0;
+all other processes are used as workers.  Communication is sent via
+MPI hub objects, which run in their own threads and manage asynchronous
+message sends and receives.  The master process (rank 0) and workers
+(other ranks) have their own hub types.  Like the TCP server, the
+master hub is tied together with a thread controller.
+
+MPI hub
+-------
+
+.. autoclass:: poap.mpiserve.MPIHub
+   :members:
+
+MPI master hub
+--------------
+
+.. autoclass:: poap.mpiserve.MPIMasterHub
+   :members:
+
+MPI worker hub
+--------------
+
+.. autoclass:: poap.mpiserve.MPIMasterHub
+   :members:
+
+MPI worker
+----------
+
+.. autoclass:: poap.mpiserve.MPIWorker
+   :members:
+
+MPI simple worker
+-----------------
+
+.. autoclass:: poap.mpiserve.MPISimpleWorker
+   :members:
+
+MPI process worker
+------------------
+
+.. autoclass:: poap.mpiserve.MPIProcessWorker
    :members:
