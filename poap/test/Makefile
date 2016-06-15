@@ -16,6 +16,9 @@ test: dummy_sim
 	python test_thread_strategy.py
 	python test_tcpserve.py
 
+testmpi:
+	mpirun -n 3 python test_mpiserve.py
+
 .PHONY: pytest cover clean
 
 pytest:
@@ -27,4 +30,3 @@ cover:
 clean:
 	rm -f dummy_sim *.pyc
 	rm -f *,cover ../*,cover
-
