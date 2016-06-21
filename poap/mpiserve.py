@@ -120,6 +120,7 @@ class MPIMasterHub(MPIHub):
         ('kill', record_id)
         ('terminate')
     The default messages received are
+        ('update_dict', record_id, dict)
         ('running', record_id)
         ('kill', record_id)
         ('cancel', record_id)
@@ -233,6 +234,15 @@ class MPIWorkerHub(MPIHub):
     def send(self, *args):
         """Send a message to process 0 (where the controller lives)."""
         MPIHub.send(self, 0, args)
+
+    def update(self, record_id, **kwargs):
+        """Update a function evaluation status with a call to update_dict.
+
+        Args:
+            record_id: Identifier for the function evaluation
+            kwargs: Named argument values
+        """
+        self.send('update_dict', record_id, kwargs)
 
     def running(self, record_id):
         """Indicate that a function evaluation is running.

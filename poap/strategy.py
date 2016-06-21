@@ -133,44 +133,50 @@ class EvalRecord(object):
         "Remove a callback subscriber."
         self.callbacks = [c for c in self.callbacks if c != callback]
 
-    def update(self):
-        "Execute callbacks."
+    def update(self, **kwargs):
+        "Update fields and execute callbacks."
         logger.debug("Running callbacks on feval update")
+        if kwargs is not None:
+            for key, value in kwargs.items():
+                setattr(self, key, value)
         for callback in self.callbacks:
             callback(self)
+
+    def update_dict(self, dict):
+        """Update fields and execute callbacks.
+
+        Args:
+            dict: Dictionary of attributes to set on the record
+        """
+        self.update(**dict)
 
     def running(self):
         "Change status to 'running' and execute callbacks."
         if self.is_done:
             logger.error("Cannot update record that is done [running]")
         assert not self.is_done, "Cannot change complete to running"
-        self._status = 'running'
-        self.update()
+        self.update(_status='running')
 
     def kill(self):
         "Change status to 'killed' and execute callbacks."
         if self.is_done:
             logger.error("Cannot update record that is done [kill]")
         assert not self.is_done, "Cannot change complete to killed"
-        self._status = 'killed'
-        self.update()
+        self.update(_status='killed')
 
     def cancel(self):
         "Change status to 'cancelled' and execute callbacks."
         if self.is_done:
             logger.error("Cannot update record that is done [cancel]")
         assert not self.is_done, "Cannot change complete to cancelled"
-        self._status = 'cancelled'
-        self.update()
+        self.update(_status='cancelled')
 
     def complete(self, value):
         "Change status to 'completed' and execute callbacks."
         if self.is_done:
             logger.error("Cannot update record that is done [complete]")
         assert not self.is_done, "Cannot re-complete"
-        self._status = 'completed'
-        self.value = value
-        self.update()
+        self.update(_status='completed', value=value)
 
     @property
     def status(self):
