@@ -112,15 +112,17 @@ class EvalRecord(object):
 
     """
 
-    def __init__(self, params, status='pending'):
+    def __init__(self, params, extra_args=None, status='pending'):
         """Initialize the record.
 
         Args:
             params: Evaluation point for the function
+            extra_args: Extra arguments to be sent to the worker
         Kwargs:
             status: Status of the evaluation (default 'pending')
         """
         self.params = params
+        self.extra_args = extra_args
         self._status = status
         self.value = None
         self.callbacks = []
@@ -959,6 +961,42 @@ class InputStrategy(BaseStrategy):
     def propose_action(self):
         if not self.retry.empty():
             return self.retry.get()
+        return self.decorate_proposal(self.strategy.propose_action())
+
+
+class AddArgStrategy(BaseStrategy):
+    """Add extra arguments to evaluation proposals.
+
+    Decorates evaluation proposals with extra arguments.  These may
+    reflect termination criteria, advice to workers about which of
+    several methods to use, etc.  The extra arguments can be static
+    (via the extra_args attribute), or they may be returned from the
+    get_extra_args function, which child classes can override.
+    The strategy *overwrites* any existing list of extra arguments,
+    so it is probably a mistake to compose strategies in a way that
+    involves multiple objects of this type.
+
+    Attributes:
+        strategy: Parent strategy
+        extra_args: Extra arguments to be added
+    """
+
+    def __init__(self, strategy, extra_args=None):
+        self.strategy = strategy
+        self.extra_args = extra_args
+
+    def add_extra_args(self, record):
+        """Add any extra arguments to an eval record.
+
+        Args:
+            record: Record to be decorated
+        """
+        record.extra_args = self.extra_args
+
+    def on_reply_accept(self, proposal):
+        self.add_extra_args(proposal.record)
+
+    def propose_action(self):
         return self.decorate_proposal(self.strategy.propose_action())
 
 

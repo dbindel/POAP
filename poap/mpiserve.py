@@ -115,7 +115,8 @@ class MPIMasterHub(MPIHub):
     to a local proxy.  The proxies can be used with the thread controller
     in the same way that a local process would.
 
-    The server sends messages of the for
+    The server sends messages of the form
+        ('eval', record_id, args, extra_args)
         ('eval', record_id, args)
         ('kill', record_id)
         ('terminate')
@@ -145,7 +146,11 @@ class MPIMasterHub(MPIHub):
             self.hub = hub
         def eval(self, record):
             self.hub.records[id(record)] = record
-            self.hub.send(self.rank, ('eval', id(record), record.params))
+            if record.extra_args is None:
+                m = ('eval', id(record), record.params)
+            else:
+                m = ('eval', id(record), record.params, record.extra_args)
+            self.hub.send(self.rank, m)
         def kill(self, record):
             self.hub.records[id(record)] = record
             self.hub.send(self.rank, ('kill', id(record)))
@@ -302,12 +307,13 @@ class MPIWorker(object):
         self.running = False
         self.hub = MPIWorkerHub()
 
-    def eval(self, record_id, params):
+    def eval(self, record_id, params, extra_args=None):
         """Evaluate a function at a point.
 
         Args:
             record_id: Identifier for the function evaluation
             params: Set of parameters
+            extra_args: Extra arguments
         """
         pass
 

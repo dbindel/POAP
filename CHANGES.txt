@@ -1,3 +1,6 @@
+v0.1.16, 2016-06-23
+	Added support for attaching extra arguments to an EvalRecord.
+
 v0.1.15, 2016-06-21
 	Added calls to update EvalRecord fields from dict (for remote workers)
 

@@ -78,7 +78,7 @@ class Controller(object):
         if fcomplete:
             return min(fcomplete, key=merit)
 
-    def new_feval(self, params):
+    def new_feval(self, params, extra_args=None):
         """Add a function evaluation record to the database.
 
         In addition to adding the record with status 'pending',
@@ -90,7 +90,7 @@ class Controller(object):
         Returns:
             New EvalRecord object
         """
-        record = EvalRecord(params, status='pending')
+        record = EvalRecord(params, extra_args=extra_args, status='pending')
         self.fevals.append(record)
         logger.debug("Call new feval callbacks")
         for callback in self.feval_callbacks:

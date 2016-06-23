@@ -9,6 +9,7 @@ import time
 from mpi4py import MPI
 from poap.strategy import FixedSampleStrategy
 from poap.strategy import CheckWorkerStrategy
+from poap.strategy import AddArgStrategy
 from poap.strategy import ChaosMonkeyStrategy
 from poap.controller import ThreadController
 from poap.mpiserve import MPIMasterHub
@@ -18,8 +19,8 @@ from poap.test.monitor import add_monitor
 
 class DummySim(MPIProcessWorker):
 
-    def eval(self, record_id, params):
-        args = ['./dummy_sim', str(*params)]
+    def eval(self, record_id, params, extra_args=None):
+        args = [extra_args, str(*params)]
         t0 = time.clock()
         self.process = subprocess.Popen(args, stdout=subprocess.PIPE)
         data = self.process.communicate()[0]
@@ -42,6 +43,7 @@ def main():
     hub = MPIMasterHub()
     strategy = FixedSampleStrategy(samples)
     strategy = CheckWorkerStrategy(hub.controller, strategy)
+    strategy = AddArgStrategy(strategy, extra_args='./dummy_sim')
     strategy = ChaosMonkeyStrategy(hub.controller, strategy, mtbf=3)
     hub.controller.strategy = strategy
     add_monitor(hub.controller, 1)

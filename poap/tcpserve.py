@@ -34,8 +34,11 @@ class SocketWorkerHandler(socketserver.BaseRequestHandler):
         logger.debug("Send eval to worker")
         self.records[id(record)] = record
         try:
-            self.request.send(
-                self.server.marshall('eval', id(record), record.params))
+            if record.extra_args is None:
+                m = ('eval', id(record), record.params)
+            else:
+                m = ('eval', id(record), record.params, record.extra_args)
+            self.request.send(self.server.marshall(*m))
         except Exception as e:
             logger.warning("In eval: {0}".format(e))
             self._cleanup(record)
@@ -116,6 +119,7 @@ class ThreadedTCPServer(socketserver.ThreadingMixIn,
 
     The server sends messages of the form
 
+        ('eval', record_id, args, extra_args)
         ('eval', record_id, args)
         ('kill', record_id)
         ('terminate')
@@ -300,9 +304,9 @@ class SimpleSocketWorker(SocketWorker):
             params: Parameters sent to the function to be evaluated
         """
         try:
-            msg = ['complete', record_id, self.objective(*params)]
+            msg = ('complete', record_id, self.objective(*params))
         except:
-            msg = ['cancel', record_id]
+            msg = ('cancel', record_id)
         self.send(*msg)
 
 
