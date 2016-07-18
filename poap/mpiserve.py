@@ -57,8 +57,8 @@ class MPIHub(threading.Thread):
         """
         logger.debug("{0}: Queueing send".format(rank))
         def msg():
-            logger.debug("Execute isend {0}->{1}: {2}".format(rank, dest, data))
-            comm.isend(data, dest=dest, tag=0)
+            logger.debug("Execute send {0}->{1}: {2}".format(rank, dest, data))
+            comm.send(data, dest=dest, tag=0)
         self.queue.put(msg)
 
     def shutdown(self):
@@ -105,6 +105,7 @@ class MPIHub(threading.Thread):
                 data = req.wait(status=s)
                 req = comm.irecv()
                 self.handler(data, s)
+        req.Cancel()
         logger.debug("Hub shuts down".format(rank))
 
 

@@ -17,6 +17,7 @@ test: dummy_sim
 	python test_tcpserve.py
 
 testmpi: dummy_sim
+	mpirun -n 2 python mpi_silly.py
 	mpirun -n 3 python test_mpiserve.py
 	mpirun -n 3 python test_mpi_process_worker.py
 
