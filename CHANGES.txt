@@ -1,3 +1,6 @@
+v0.1.17, 2016-07-18
+	Changed MPI to blocking sends, added simple test of mpi4py.
+
 v0.1.16, 2016-06-23
 	Added support for attaching extra arguments to an EvalRecord.
 
