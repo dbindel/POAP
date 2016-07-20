@@ -42,4 +42,5 @@ if __name__ == '__main__':
     if rank == 0:
         main()
     else:
+        logging.basicConfig(filename='test_mpi_serve.log-{0}'.format(rank))
         worker_main()

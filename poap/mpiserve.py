@@ -90,8 +90,6 @@ class MPIHub(threading.Thread):
         is placed in the outgoing queue or an MPI message is received.  All
         received messages are processed by handing them off to the handler.
         """
-        s = MPI.Status()
-        req = comm.irecv()
         self.running = True
         logger.debug("Starting hub main routine")
         while self.running or not self.queue.empty():
@@ -100,12 +98,11 @@ class MPIHub(threading.Thread):
                 logger.debug("Hub handling outgoing message")
                 m = self.queue.get_nowait()
                 m()
-            elif req.Get_status(status=s):
+            elif comm.Iprobe():
                 logger.debug("Hub handling incoming message")
-                data = req.wait(status=s)
-                req = comm.irecv()
+                s = MPI.Status()
+                data = comm.recv(status=s)
                 self.handler(data, s)
-        req.Cancel()
         logger.debug("Hub shuts down".format(rank))
 
 

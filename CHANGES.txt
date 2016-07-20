@@ -1,3 +1,6 @@
+v0.1.18, 2016-07-20
+	Changed MPI to all blocking (with Iprobe), fix worker logging.
+
 v0.1.17, 2016-07-18
 	Changed MPI to blocking sends, added simple test of mpi4py.
 

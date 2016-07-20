@@ -57,4 +57,5 @@ if __name__ == '__main__':
     if rank == 0:
         main()
     else:
+        logging.basicConfig(filename='test_mpi_pw.log-{0}'.format(rank))
         DummySim().run()

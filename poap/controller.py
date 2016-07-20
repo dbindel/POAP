@@ -13,6 +13,7 @@ import sys
 import heapq
 import threading
 import logging
+import time
 from poap.strategy import EvalRecord
 
 
@@ -306,6 +307,7 @@ class ThreadController(Controller):
         "Run the optimization and return the best value."
         while True:
             self._run_queued_messages()
+            time.sleep(0) # Yields to other threads
             proposal = self.strategy.propose_action()
             if not proposal:
                 self._run_message()
