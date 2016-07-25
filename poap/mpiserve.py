@@ -17,8 +17,7 @@ import threading
 import time
 import logging
 
-from poap.controller import ThreadController
-from poap.controller import BaseWorkerThread
+from poap.controller import Controller
 
 # Get module-level logger
 logger = logging.getLogger(__name__)
@@ -27,6 +26,127 @@ logger = logging.getLogger(__name__)
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 nproc = comm.Get_size()
+
+
+class MPIController(Controller):
+    """MPI controller.
+
+    The MPI controller *must* run at rank 0.
+
+    The server sends messages of the form
+        ('eval', record_id, args, extra_args)
+        ('eval', record_id, args)
+        ('kill', record_id)
+        ('terminate')
+    The default messages received are
+        ('update_dict', record_id, dict)
+        ('running', record_id)
+        ('kill', record_id)
+        ('cancel', record_id)
+        ('complete', record_id, value)
+    """
+
+    def __init__(self, strategy=None):
+        "Initialize the controller."
+        Controller.__init__(self)
+        self._workers = [w for w in range(1,nproc)]
+        self._recids = {}
+        self.strategy = strategy
+        self.add_term_callback(self._send_shutdown)
+
+    def can_work(self):
+        "Return whether we can currently perform work."
+        return len(self._workers) > 0
+
+    def _handle_message(self):
+        """Handle received messages.
+
+        Receive record update messages of the form
+            ('action', record_id, params)
+        where 'action' is the name of an EvalRecord method and params is
+        the list of parameters.  The record_id should be recorded in the
+        hub's records table (which happens whenever it is referenced in
+        a message sent to a worker).
+
+        On a message indicating that the worker is done with the record,
+        we add the worker that sent the message back to the free pool.
+        """
+        logger.debug("Handle incoming message")
+        s = MPI.Status()
+        data = comm.recv(status=s)
+        mname = data[0]
+        record = self._recids[data[1]]
+        method = getattr(record, mname)
+        method(*data[2:])
+        if mname == 'complete' or mname == 'cancel' or mname == 'kill':
+            logger.debug("Re-queueing worker")
+            self._workers.append(s.source)
+
+    def _submit_work(self, proposal):
+        "Create new record and send to worker"
+        worker = self._workers.pop()
+        record = self.new_feval(proposal.args)
+        record.worker = worker
+        proposal.record = record
+        self._recids[id(record)] = record
+        proposal.accept()
+        logger.debug("Dispatch eval request to {0}".format(worker))
+        if record.extra_args is None:
+            m = ('eval', id(record), record.params)
+        else:
+            m = ('eval', id(record), record.params, record.extra_args)
+        comm.send(m, dest=worker, tag=0)
+
+    def _kill_work(self, record):
+        "Send a kill request to a worker"
+        worker = record.worker
+        logger.debug("Dispatch kill request to {0}".format(worker))
+        comm.send(('kill', id(record)), dest=worker, tag=0)
+
+    def _send_shutdown(self):
+        "Send shutdown requests to all workers"
+        for worker in range(1,nproc):
+            comm.send(('terminate',), dest=worker, tag=0)
+
+    def _run(self, merit=None, filter=filter):
+        "Run the optimization and return the best value."
+        while True:
+            if comm.iprobe():
+                self._handle_message()
+            proposal = self.strategy.propose_action()
+            if not proposal:
+                self._handle_message()
+            elif proposal.action == 'terminate':
+                logger.debug("Accept terminate proposal")
+                proposal.accept()
+                return self.best_point(merit=merit, filter=filter)
+            elif proposal.action == 'eval' and self.can_work():
+                logger.debug("Accept eval proposal")
+                self._submit_work(proposal)
+            elif proposal.action == 'kill' and not proposal.args[0].is_done:
+                logger.debug("Accept kill proposal")
+                record = proposal.args[0]
+                proposal.accept()
+                self._kill_work(record)
+            else:
+                logger.debug("Reject proposal")
+                proposal.reject()
+
+    def run(self, merit=None, filter=None):
+        """Run the optimization and return the best value.
+
+        Args:
+            merit: Function to minimize (default is r.value)
+            filter: Predicate to use for filtering candidates
+
+        Returns:
+            Record minimizing merit() and satisfying filter();
+            or None if nothing satisfies the filter
+        """
+        try:
+            return self._run(merit=merit, filter=filter)
+        finally:
+            self.call_term_callbacks()
 
 
 class MPIHub(threading.Thread):
@@ -98,125 +218,12 @@ class MPIHub(threading.Thread):
                 logger.debug("Hub handling outgoing message")
                 m = self.queue.get_nowait()
                 m()
-            elif comm.Iprobe():
+            elif comm.iprobe():
                 logger.debug("Hub handling incoming message")
                 s = MPI.Status()
                 data = comm.recv(status=s)
                 self.handler(data, s)
         logger.debug("Hub shuts down".format(rank))
-
-
-class MPIMasterHub(MPIHub):
-    """Manage a collection of remote workers connected via MPI.
-
-    The MPIMasterHub is an MPIHub that connects each worker process
-    to a local proxy.  The proxies can be used with the thread controller
-    in the same way that a local process would.
-
-    The server sends messages of the form
-        ('eval', record_id, args, extra_args)
-        ('eval', record_id, args)
-        ('kill', record_id)
-        ('terminate')
-    The default messages received are
-        ('update_dict', record_id, dict)
-        ('running', record_id)
-        ('kill', record_id)
-        ('cancel', record_id)
-        ('complete', record_id, value)
-
-    Attributes:
-        controller: ThreadController object
-        records: Map from ids to records (for unique id by workers)
-        workers: Worker proxy list, one per process (None at rank 0)
-    """
-
-    class WorkerProxy(object):
-        """Proxy object representing a remote worker.
-
-        The WorkerProxy simply turns ThreadController function calls
-        requesting function evaluation / kill / termination into
-        messages to a remote MPI process.  It should only be instantiated
-        by the MPIMasterHub.
-        """
-        def __init__(self, rank, hub):
-            self.rank = rank
-            self.hub = hub
-        def eval(self, record):
-            self.hub.records[id(record)] = record
-            if record.extra_args is None:
-                m = ('eval', id(record), record.params)
-            else:
-                m = ('eval', id(record), record.params, record.extra_args)
-            self.hub.send(self.rank, m)
-        def kill(self, record):
-            self.hub.records[id(record)] = record
-            self.hub.send(self.rank, ('kill', id(record)))
-        def terminate(self):
-            self.hub.send(self.rank, ('terminate',))
-
-    def __init__(self, strategy=None):
-        """Initialize the hub.
-
-        Args:
-            strategy: Strategy object to connect to controllers
-            handlers: Dictionary of specialized message handlers
-        """
-        super(MPIMasterHub, self).__init__()
-        self.controller = ThreadController()
-        self.controller.strategy = strategy
-        self.controller.add_term_callback(self.shutdown)
-        self.records = {}
-        self.workers = [None]
-        for j in range(1,nproc):
-            logger.debug("Add proxy for MPI proc {0}".format(j))
-            worker = MPIMasterHub.WorkerProxy(j, self)
-            self.workers.append(worker)
-            self.controller.add_term_callback(worker.terminate)
-            self.controller.add_worker(worker)
-
-    def handler(self, data, status):
-        """Handle received messages.
-
-        Receive record update messages of the form
-            ('action', record_id, params)
-        where 'action' is the name of an EvalRecord method and params is
-        the list of parameters.  The record_id should be recorded in the
-        hub's records table (which happens whenever it is referenced in
-        a message sent to a worker).
-
-        On a message indicating that the worker is done with the record,
-        we add the worker that sent the message back to the free pool.
-
-        Args:
-            data: Data received
-            status: MPI status object (the message source is status.source)
-        """
-        logger.debug("Handling message: {0}".format(data))
-        mname = data[0]
-        record = self.records[data[1]]
-        controller = self.controller
-        method = getattr(record, mname)
-        controller.add_message(lambda: method(*data[2:]))
-        if mname == 'complete' or mname == 'cancel' or mname == 'kill':
-            logger.debug("Re-queueing worker")
-            controller.add_worker(self.workers[status.source])
-
-    def optimize(self, merit=None, filter=None):
-        """Run the optimization and return the best value.
-
-        Args:
-            merit: Function to minimize (default is r.value)
-            filter: Predicate to use for filtering candidates
-
-        Returns:
-            Record minimizing merit() and satisfying filter();
-            or None if nothing satisfies the filter
-        """
-        self.start()
-        value = self.controller.run(merit, filter)
-        self.join()
-        return value
 
 
 class MPIWorkerHub(MPIHub):

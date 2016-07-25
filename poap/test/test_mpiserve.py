@@ -5,7 +5,7 @@ import threading
 
 from mpi4py import MPI
 from poap.strategy import FixedSampleStrategy
-from poap.mpiserve import MPIMasterHub
+from poap.mpiserve import MPIController
 from poap.mpiserve import MPISimpleWorker
 
 
@@ -22,15 +22,18 @@ def f(x):
 
 
 def worker_main():
+    logging.basicConfig(format="%(name)-18s: %(levelname)-8s %(message)s",
+                        level=logging.INFO)
     MPISimpleWorker(f).run()
 
 
 def main():
     logging.basicConfig(format="%(name)-18s: %(levelname)-8s %(message)s",
+                        filename='test_mpi_serve.log-{0}'.format(rank),
                         level=logging.INFO)
     strategy = FixedSampleStrategy([1, 2, 3, 4, 5])
-    server = MPIMasterHub(strategy=strategy)
-    result = server.optimize()
+    c = MPIController(strategy)
+    result = c.run()
     print("Final: {0:.3e} @ {1}".format(result.value, result.params))
 
 
@@ -42,5 +45,4 @@ if __name__ == '__main__':
     if rank == 0:
         main()
     else:
-        logging.basicConfig(filename='test_mpi_serve.log-{0}'.format(rank))
         worker_main()

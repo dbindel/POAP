@@ -11,8 +11,7 @@ from poap.strategy import FixedSampleStrategy
 from poap.strategy import CheckWorkerStrategy
 from poap.strategy import AddArgStrategy
 from poap.strategy import ChaosMonkeyStrategy
-from poap.controller import ThreadController
-from poap.mpiserve import MPIMasterHub
+from poap.mpiserve import MPIController
 from poap.mpiserve import MPIProcessWorker
 from poap.test.monitor import add_monitor
 
@@ -40,14 +39,14 @@ def main():
                         level=logging.INFO)
 
     samples = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]
-    hub = MPIMasterHub()
+    controller = MPIController()
     strategy = FixedSampleStrategy(samples)
-    strategy = CheckWorkerStrategy(hub.controller, strategy)
+    strategy = CheckWorkerStrategy(controller, strategy)
     strategy = AddArgStrategy(strategy, extra_args='./dummy_sim')
-    strategy = ChaosMonkeyStrategy(hub.controller, strategy, mtbf=3)
-    hub.controller.strategy = strategy
-    add_monitor(hub.controller, 1)
-    result = hub.optimize()
+    strategy = ChaosMonkeyStrategy(controller, strategy, mtbf=3)
+    controller.strategy = strategy
+    add_monitor(controller, 1)
+    result = controller.run()
     print("Final: {0:.3e} @ {1} time {2}".format(result.value, result.params, result.time))
 
 

@@ -47,6 +47,7 @@ class Controller(object):
             callback: Function to call when timeout elapses
         """
         thread = threading.Timer(timeout, callback)
+        thread.daemon = True
         thread.start()
 
     def ping(self):
