@@ -1,3 +1,6 @@
+v0.1.20, 2016-07-26
+	Change comm.iprobe -> comm.Iprobe for mpi4py back compatibility.
+
 v0.1.19, 2016-07-25
 	Overhaul MPI code to avoid MPI calls from any but the main thread.
 

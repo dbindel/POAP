@@ -111,7 +111,7 @@ class MPIController(Controller):
     def _run(self, merit=None, filter=filter):
         "Run the optimization and return the best value."
         while True:
-            if comm.iprobe():
+            if comm.Iprobe():
                 self._handle_message()
             proposal = self.strategy.propose_action()
             if not proposal:
@@ -245,7 +245,7 @@ class MPIWorker(object):
     def run(self):
         self._running = True
         while self._running:
-            if comm.iprobe():
+            if comm.Iprobe():
                 self._handle_message()
             elif self._eval_thread and not self._eval_thread.is_alive():
                 self._eval_thread.join()
