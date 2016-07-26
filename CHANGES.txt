@@ -1,3 +1,6 @@
+v0.1.19, 2016-07-25
+	Overhaul MPI code to avoid MPI calls from any but the main thread.
+
 v0.1.18, 2016-07-20
 	Changed MPI to all blocking (with Iprobe), fix worker logging.
 
