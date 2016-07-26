@@ -69,7 +69,7 @@ def main():
     strategy = AddArgStrategy(strategy, extra_args='./dummy_sim')
     strategy = ChaosMonkeyStrategy(controller, strategy, mtbf=3)
     controller.strategy = strategy
-    add_monitor(controller, 1)
+    #add_monitor(controller, 1)
     result = controller.run()
     logging.info("Final: {0:.3e} @ {1} time {2}".format(result.value, result.params, result.time))
 
