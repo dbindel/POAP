@@ -1,0 +1,11 @@
+#!/bin/sh
+
+#PBS -N test_mpi_process_worker
+#PBS -j oe
+#PBS -l nodes=1:ppn=24
+
+module load cs5220
+cd $PBS_O_WORKDIR
+export PYTHONPATH=../..:
+
+mpirun -n 4 python test_mpi_process_worker.py

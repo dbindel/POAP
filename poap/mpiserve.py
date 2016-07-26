@@ -177,10 +177,11 @@ class MPIWorker(object):
 
     def eval(self, id, args, extra_args=None):
         "Actually do the function evaluation (separate thread)"
-        pass
+        logger.error("Call to base MPIWorker.eval!")
 
     def on_eval(self, id, args, extra_args=None):
         "Handle eval request."
+        logger.debug("In MPIWorker.on_eval")
         targs = (id, args)
         if extra_args is not None:
             targs = (id, args, extra_args)
@@ -191,10 +192,12 @@ class MPIWorker(object):
 
     def on_kill(self, id):
         "Handle kill request."
+        logger.debug("In MPIWorker.on_kill")
         self._eval_killed = True
 
     def on_terminate(self):
         "Handle termination request."
+        logger.debug("In MPIWorker.on_terminate")
         self._running = False
 
     def send(self, *args):
@@ -246,11 +249,15 @@ class MPIWorker(object):
 
     def _handle_message(self):
         logger.debug("Handle incoming message")
-        s = MPI.Status()
-        data = comm.recv(status=s)
-        mname = "on_{0}".format(data[0])
-        method = getattr(self, mname)
-        method(*data[1:])
+        try:
+            s = MPI.Status()
+            data = comm.recv(status=s)
+            mname = "on_{0}".format(data[0])
+            logger.debug("Call to {0}{1}".format(mname, data[1:]))
+            method = getattr(self, mname)
+            method(*data[1:])
+        except:
+            logger.debug("Exception in message handler")
 
     def run(self):
         self._running = True

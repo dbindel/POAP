@@ -3,7 +3,7 @@ export PYTHONPATH=../..:
 dummy_sim: dummy_sim.c
 	gcc -o $@ $<
 
-.PHONY: test testmpi
+.PHONY: test testmpi qsub_mpi
 test: dummy_sim
 	python test_strategies.py
 	python test_input_strategy.py
@@ -21,6 +21,10 @@ testmpi: dummy_sim
 	mpirun -n 3 python test_mpiserve.py
 	mpirun -n 3 python test_mpi_process_worker.py
 
+qsub_mpi: dummy_sim
+	qsub test_mpiserve.pbs
+	qsub test_mpi_process_worker.pbs
+
 .PHONY: pytest cover clean
 
 pytest:
@@ -33,3 +37,4 @@ clean:
 	rm -f dummy_sim *.pyc
 	rm -f *,cover ../*,cover
 	rm -f *.log-*
+	rm -f test_mpi_process_worker.o*

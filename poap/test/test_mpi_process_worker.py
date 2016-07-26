@@ -20,6 +20,7 @@ class DummySim(MPIProcessWorker):
 
     def eval(self, record_id, params, extra_args=None):
         try:
+            logging.debug("In eval")
             args = [extra_args, str(*params)]
             t0 = time.clock()
             self.process = subprocess.Popen(args, stdout=subprocess.PIPE)
@@ -28,6 +29,7 @@ class DummySim(MPIProcessWorker):
             self.finish_success(record_id, float(data))
             logging.info("Success: {0}".format(params))
         except ValueError:
+            logging.debug("Caught ValueError")
             self.update(record_id, time=time.clock()-t0)
             if self._eval_killed:
                 self.finish_killed(record_id)
@@ -35,6 +37,11 @@ class DummySim(MPIProcessWorker):
             else:
                 self.finish_cancel(record_id)
                 logging.info("Failure: {0}".format(params))
+        except:
+            logging.error("Caught other exception")
+            self.finish_cancel(record_id)
+            logging.info("Failure: {0}".format(params))
+
 
 def worker_main():
     logging.basicConfig(filename='test_mpi_pw.log-{0}'.format(rank),
