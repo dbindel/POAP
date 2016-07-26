@@ -19,18 +19,22 @@ from poap.test.monitor import add_monitor
 class DummySim(MPIProcessWorker):
 
     def eval(self, record_id, params, extra_args=None):
-        args = [extra_args, str(*params)]
-        t0 = time.clock()
-        self.process = subprocess.Popen(args, stdout=subprocess.PIPE)
-        data = self.process.communicate()[0]
         try:
-            self.hub.update(record_id, time=time.clock()-t0)
-            self.hub.finish_success(record_id, float(data))
+            args = [extra_args, str(*params)]
+            t0 = time.clock()
+            self.process = subprocess.Popen(args, stdout=subprocess.PIPE)
+            data = self.process.communicate()[0]
+            self.update(record_id, time=time.clock()-t0)
+            self.finish_success(record_id, float(data))
             logging.info("Success: {0}".format(params))
         except ValueError:
-            self.hub.update(record_id, time=time.clock()-t0)
-            self.hub.finish_cancelled(record_id)
-            logging.info("Failure: {0}".format(params))
+            self.update(record_id, time=time.clock()-t0)
+            if self._eval_killed:
+                self.finish_killed(record_id)
+                logging.info("Killed: {0}".format(params))
+            else:
+                self.finish_cancel(record_id)
+                logging.info("Failure: {0}".format(params))
 
 
 def main():

@@ -12,11 +12,11 @@ try:
 except ImportError:
     import queue as Queue
 
-from mpi4py import MPI
-import threading
 import time
 import logging
 
+from mpi4py import MPI
+from threading import Thread
 from poap.controller import Controller
 
 # Get module-level logger
@@ -149,101 +149,48 @@ class MPIController(Controller):
             self.call_term_callbacks()
 
 
-class MPIHub(threading.Thread):
-    """Queue-based asynchronous communication over MPI.
+class MPIWorker(object):
+    """MPI worker process.
 
-    The MPIHub object uses non-blocking sends and receives to communicate with
-    any other MPI processes.  We handle outgoing messages via a queue, and
-    incoming messages via a callback system.  If an MPIHub object is handling
-    the MPI communications for a particular rank, there should be *no other*
-    MPI send/receive calls outside the MPIHub while the MPIHub thread is
-    running.
-
-    Attributes:
-        running: set to true if the main event loop should keep running
+    An MPI worker mostly monitors messages from the master.
+    It also monitors a local queue in case there is a separate
+    computational process or thread generating results.  The
+    main routine for the evaluator is eval.
     """
 
     def __init__(self):
-        super(MPIHub, self).__init__()
-        self.queue = Queue.Queue()
-        self.running = False
+        self._running = False
+        self._outbox = Queue.Queue()
+        self._eval_thread = None
+        self._eval_killed = False
+        self.daemonize = False
 
-    def send(self, dest, data):
-        """Send a message (non-blocking) to another MPI process.
+    def eval(self, id, args, extra_args=None):
+        "Actually do the function evaluation (separate thread)"
+        pass
 
-        Args:
-            dest: Rank of the receiving process
-            data: Data to be sent (must be amenable to pickling)
-        """
-        logger.debug("{0}: Queueing send".format(rank))
-        def msg():
-            logger.debug("Execute send {0}->{1}: {2}".format(rank, dest, data))
-            comm.send(data, dest=dest, tag=0)
-        self.queue.put(msg)
+    def on_eval(self, id, args, extra_args=None):
+        "Handle eval request."
+        targs = (id, args)
+        if extra_args is not None:
+            targs = (id, args, extra_args)
+        self._eval_thread = Thread(target=self.eval,args=targs)
+        self._eval_thread.daemon = self.daemonize
+        self._eval_killed = False
+        self._eval_thread.start()
 
-    def shutdown(self):
-        """Send a shutdown message to the main routine.
+    def on_kill(self, id):
+        "Handle kill request."
+        self._eval_killed = True
 
-        Note: A shutdown will only be processed *after* all pending
-        outgoing messages have been sent.
-        """
-        def msg():
-            self.running = False
-        self.queue.put(msg)
-
-    def handler(self, data, status):
-        """Handle received messages.
-
-        This function handles incoming messages.  It should be overloaded
-        by classes inherited from MPIHub.
-
-        Args:
-            data: Data received
-            status: MPI status object (the message source is status.source)
-        """
-        logger.warning("Unhandled from {0}".format(s.source))
-
-    def run(self):
-        """Main thread routine.
-
-        The hub object waits until either an action (shutdown or message send)
-        is placed in the outgoing queue or an MPI message is received.  All
-        received messages are processed by handing them off to the handler.
-        """
-        self.running = True
-        logger.debug("Starting hub main routine")
-        while self.running or not self.queue.empty():
-            time.sleep(0) # Yields to other threads
-            if not self.queue.empty():
-                logger.debug("Hub handling outgoing message")
-                m = self.queue.get_nowait()
-                m()
-            elif comm.iprobe():
-                logger.debug("Hub handling incoming message")
-                s = MPI.Status()
-                data = comm.recv(status=s)
-                self.handler(data, s)
-        logger.debug("Hub shuts down".format(rank))
-
-
-class MPIWorkerHub(MPIHub):
-    """Base class for workers to communicate with a main controller hub.
-
-    The send routine sends a message to the main controller, and
-    eval/kill/terminate messages get put on a local queue (msgq)
-    for the worker to pick up.
-
-    Attributes:
-        msgq: Incoming message queue
-    """
-
-    def __init__(self):
-        super(MPIWorkerHub, self).__init__()
-        self.msgq = Queue.Queue()
+    def on_terminate(self):
+        "Handle termination request."
+        self._running = False
 
     def send(self, *args):
-        """Send a message to process 0 (where the controller lives)."""
-        MPIHub.send(self, 0, args)
+        "Queue message to process 0 (where the controller lives)."
+        logger.debug("Queue outgoing message")
+        self._outbox.put(args)
 
     def update(self, record_id, **kwargs):
         """Update a function evaluation status with a call to update_dict.
@@ -287,72 +234,30 @@ class MPIWorkerHub(MPIHub):
         """
         self.send('kill', record_id)
 
-    def handler(self, data, status):
-        """Handle received messages.
-
-        Incoming messages are added to a queue for worker pickup.  The
-        status is ignored, as we should just receive messages from process 0.
-
-        Args:
-            data: Data received
-            status: MPI status object (the message source is status.source)
-        """
-        logger.debug("Worker hub gets message {0}".format(data))
-        self.msgq.put(data)
-
-
-class MPIWorker(object):
-    """Base class for workers using MPI.
-
-    A worker object spins up a hub and processes work request messages until
-    it receives a termination request.
-    """
-
-    def __init__(self):
-        self.running = False
-        self.hub = MPIWorkerHub()
-
-    def eval(self, record_id, params, extra_args=None):
-        """Evaluate a function at a point.
-
-        Args:
-            record_id: Identifier for the function evaluation
-            params: Set of parameters
-            extra_args: Extra arguments
-        """
-        pass
-
-    def kill(self, record_id):
-        """Kill a running function evaluation.
-
-        Args:
-            record_id: Identifier for the function evaluation
-        """
-        pass
-
-    def terminate(self):
-        """Shut down the worker.
-        """
-        self.running = False
+    def _handle_message(self):
+        logger.debug("Handle incoming message")
+        s = MPI.Status()
+        data = comm.recv(status=s)
+        mname = "on_{0}".format(data[0])
+        method = getattr(self, mname)
+        method(*data[1:])
 
     def run(self):
-        """Execute the worker process.
-
-        The worker process does not run in its own thread; it only
-        exits once a termination message has been received.
-        """
-        logger.debug("Enter worker runner")
-        self.running = True
-        self.hub.start()
-        while self.running:
-            logger.debug("Worker awaits work")
-            data = self.hub.msgq.get()
-            logger.debug("Worker got command: {0}".format(data))
-            method = getattr(self, data[0])
-            method(*data[1:])
-        logger.debug("Worker shuts down")
-        self.hub.shutdown()
-        self.hub.join()
+        self._running = True
+        while self._running:
+            if comm.iprobe():
+                self._handle_message()
+            elif self._eval_thread and not self._eval_thread.is_alive():
+                self._eval_thread.join()
+                self._eval_thread = None
+            else:
+                try:
+                    timeout = 0.005
+                    msg = self._outbox.get(True, timeout)
+                    logger.debug("Handle outgoing message")
+                    comm.send(msg, dest=0, tag=0)
+                except Queue.Empty:
+                    pass
 
 
 class MPISimpleWorker(MPIWorker):
@@ -376,10 +281,10 @@ class MPISimpleWorker(MPIWorker):
         logger.debug("Eval {0} at {1}".format(record_id, params))
         try:
             value = self.f(*params)
-            self.hub.finish_success(record_id, value)
+            self.finish_success(record_id, value)
         except:
             logger.warning("Function evaluation failed")
-            self.hub.finish_cancelled(record_id)
+            self.finish_cancel(record_id)
 
 
 class MPIProcessWorker(MPIWorker):
@@ -395,6 +300,7 @@ class MPIProcessWorker(MPIWorker):
 
     def __init__(self):
         super(MPIProcessWorker, self).__init__()
+        self.process = None
 
     def kill_process(self):
         "Kill the child process"
@@ -402,9 +308,10 @@ class MPIProcessWorker(MPIWorker):
             logger.debug("MPIProcessWorker is killing subprocess")
             self.process.terminate()
 
-    def kill(self, record_id):
+    def on_kill(self, record_id):
+        self._eval_killed = True
         self.kill_process()
 
-    def terminate(self):
+    def on_terminate(self):
         self.kill_process()
-        MPIWorker.terminate(self)
+        super(MPIProcessWorker, self).on_terminate()
