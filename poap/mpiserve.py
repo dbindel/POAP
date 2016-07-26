@@ -51,8 +51,14 @@ class MPIController(Controller):
         Controller.__init__(self)
         self._workers = [w for w in range(1,nproc)]
         self._recids = {}
+        self._needs_ping = False
         self.strategy = strategy
         self.add_term_callback(self._send_shutdown)
+
+    def ping(self):
+        "Ping controller to check in with strategies"
+        logger.debug("Ping MPIController to check strategies")
+        self._needs_ping = False
 
     def can_work(self):
         "Return whether we can currently perform work."
@@ -81,6 +87,7 @@ class MPIController(Controller):
         if mname == 'complete' or mname == 'cancel' or mname == 'kill':
             logger.debug("Re-queueing worker")
             self._workers.append(s.source)
+        self.ping()
 
     def _submit_work(self, proposal):
         "Create new record and send to worker"
@@ -113,7 +120,9 @@ class MPIController(Controller):
         while True:
             if comm.Iprobe():
                 self._handle_message()
-            proposal = self.strategy.propose_action()
+            proposal = None
+            if not self._needs_ping:
+                proposal = self.strategy.propose_action()
             if not proposal:
                 self._handle_message()
             elif proposal.action == 'terminate':
@@ -131,6 +140,7 @@ class MPIController(Controller):
             else:
                 logger.debug("Reject proposal")
                 proposal.reject()
+                self._needs_ping = True
 
     def run(self, merit=None, filter=None):
         """Run the optimization and return the best value.

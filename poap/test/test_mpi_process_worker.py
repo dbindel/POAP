@@ -36,11 +36,24 @@ class DummySim(MPIProcessWorker):
                 self.finish_cancel(record_id)
                 logging.info("Failure: {0}".format(params))
 
+def worker_main():
+    logging.basicConfig(filename='test_mpi_pw.log-{0}'.format(rank),
+                        format="%(name)-18s: %(levelname)-8s %(message)s",
+                        level=logging.DEBUG)
+    DummySim().run()
+
 
 def main():
     "Testing routine."
+    # Log at DEBUG level to file, higher level to console
     logging.basicConfig(format="%(name)-18s: %(levelname)-8s %(message)s",
-                        level=logging.INFO)
+                        filename='test_mpi_pw.log-{0}'.format(rank),
+                        level=logging.DEBUG)
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(name)-12s: %(levelname)-8s %(message)s")
+    ch.setFormatter(formatter)
+    logging.getLogger('').addHandler(ch)
 
     samples = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]
     controller = MPIController()
@@ -51,7 +64,7 @@ def main():
     controller.strategy = strategy
     add_monitor(controller, 1)
     result = controller.run()
-    print("Final: {0:.3e} @ {1} time {2}".format(result.value, result.params, result.time))
+    logging.info("Final: {0:.3e} @ {1} time {2}".format(result.value, result.params, result.time))
 
 
 if __name__ == '__main__':
@@ -60,5 +73,4 @@ if __name__ == '__main__':
     if rank == 0:
         main()
     else:
-        logging.basicConfig(filename='test_mpi_pw.log-{0}'.format(rank))
-        DummySim().run()
+        worker_main()

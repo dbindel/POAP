@@ -1,3 +1,6 @@
+v0.1.21, 2016-07-26
+	Fix logging in MPI test cases and avoid repeated reject in MPI.
+
 v0.1.20, 2016-07-26
 	Change comm.iprobe -> comm.Iprobe for mpi4py back compatibility.
 

@@ -9,39 +9,39 @@ from poap.mpiserve import MPIController
 from poap.mpiserve import MPISimpleWorker
 
 
-# Set up default host, port, and time
-TIMEOUT=0
-
-
 def f(x):
     logging.info("Request for {0}".format(x))
-    if TIMEOUT > 0:
-        time.sleep(TIMEOUT)
     logging.info("OK, done")
     return (x-1.23)*(x-1.23)
 
 
 def worker_main():
     logging.basicConfig(format="%(name)-18s: %(levelname)-8s %(message)s",
-                        level=logging.INFO)
+                        filename='test_mpi_serve.log-{0}'.format(rank),
+                        level=logging.DEBUG)
     MPISimpleWorker(f).run()
 
 
 def main():
+    # Log at DEBUG level to file, higher level to console
     logging.basicConfig(format="%(name)-18s: %(levelname)-8s %(message)s",
                         filename='test_mpi_serve.log-{0}'.format(rank),
-                        level=logging.INFO)
+                        level=logging.DEBUG)
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(name)-12s: %(levelname)-8s %(message)s")
+    ch.setFormatter(formatter)
+    logging.getLogger('').addHandler(ch)
+
     strategy = FixedSampleStrategy([1, 2, 3, 4, 5])
     c = MPIController(strategy)
     result = c.run()
-    print("Final: {0:.3e} @ {1}".format(result.value, result.params))
+    logging.info("Final: {0:.3e} @ {1}".format(result.value, result.params))
 
 
 if __name__ == '__main__':
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
-    if len(sys.argv) > 1:
-        TIMEOUT=float(sys.argv[1])
     if rank == 0:
         main()
     else:

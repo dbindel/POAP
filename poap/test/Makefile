@@ -32,3 +32,4 @@ cover:
 clean:
 	rm -f dummy_sim *.pyc
 	rm -f *,cover ../*,cover
+	rm -f *.log-*
