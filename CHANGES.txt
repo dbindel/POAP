@@ -1,3 +1,6 @@
+v0.1.22, 2016-07-26
+	Improved logging in MPI server.
+
 v0.1.21, 2016-07-26
 	Fix logging in MPI test cases and avoid repeated reject in MPI.
 
