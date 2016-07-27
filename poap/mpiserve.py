@@ -78,7 +78,8 @@ class MPIController(Controller):
         """
         logger.debug("Handle incoming message")
         s = MPI.Status()
-        data = comm.recv(status=s)
+        data = comm.recv(status=s, source=MPI.ANY_SOURCE)
+        logger.debug("Received message: %s", data)
         mname = data[0]
         record = self._recids[data[1]]
         method = getattr(record, mname)
