@@ -1,3 +1,6 @@
+v0.1.24, 2016-07-27
+	Added source/tag on MPI receives (compatibility with older mpi4py).
+
 v0.1.23, 2016-07-27
 	Improved logging in MPI server + clean-up from linter.
 
