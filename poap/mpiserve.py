@@ -12,11 +12,10 @@ try:
 except ImportError:
     import queue as Queue
 
-import time
 import logging
 
-from mpi4py import MPI
 from threading import Thread
+from mpi4py import MPI
 from poap.controller import Controller
 
 # Get module-level logger
@@ -49,7 +48,7 @@ class MPIController(Controller):
     def __init__(self, strategy=None):
         "Initialize the controller."
         Controller.__init__(self)
-        self._workers = [w for w in range(1,nproc)]
+        self._workers = [w for w in range(1, nproc)]
         self._recids = {}
         self._needs_ping = False
         self.strategy = strategy
@@ -97,7 +96,7 @@ class MPIController(Controller):
         proposal.record = record
         self._recids[id(record)] = record
         proposal.accept()
-        logger.debug("Dispatch eval request to {0}".format(worker))
+        logger.debug("Dispatch eval request to %d", worker)
         if record.extra_args is None:
             m = ('eval', id(record), record.params)
         else:
@@ -107,15 +106,15 @@ class MPIController(Controller):
     def _kill_work(self, record):
         "Send a kill request to a worker"
         worker = record.worker
-        logger.debug("Dispatch kill request to {0}".format(worker))
+        logger.debug("Dispatch kill request to %d", worker)
         comm.send(('kill', id(record)), dest=worker, tag=0)
 
     def _send_shutdown(self):
         "Send shutdown requests to all workers"
-        for worker in range(1,nproc):
+        for worker in range(1, nproc):
             comm.send(('terminate',), dest=worker, tag=0)
 
-    def _run(self, merit=None, filter=filter):
+    def _run(self, merit=None, filterp=None):
         "Run the optimization and return the best value."
         while True:
             if comm.Iprobe():
@@ -128,7 +127,7 @@ class MPIController(Controller):
             elif proposal.action == 'terminate':
                 logger.debug("Accept terminate proposal")
                 proposal.accept()
-                return self.best_point(merit=merit, filter=filter)
+                return self.best_point(merit=merit, filter=filterp)
             elif proposal.action == 'eval' and self.can_work():
                 logger.debug("Accept eval proposal")
                 self._submit_work(proposal)
@@ -142,19 +141,19 @@ class MPIController(Controller):
                 proposal.reject()
                 self._needs_ping = True
 
-    def run(self, merit=None, filter=None):
+    def run(self, merit=None, filterp=None):
         """Run the optimization and return the best value.
 
         Args:
             merit: Function to minimize (default is r.value)
-            filter: Predicate to use for filtering candidates
+            filterp: Predicate to use for filtering candidates
 
         Returns:
-            Record minimizing merit() and satisfying filter();
+            Record minimizing merit() and satisfying filterp();
             or None if nothing satisfies the filter
         """
         try:
-            return self._run(merit=merit, filter=filter)
+            return self._run(merit=merit, filterp=filterp)
         finally:
             self.call_term_callbacks()
 
@@ -175,24 +174,35 @@ class MPIWorker(object):
         self._eval_killed = False
         self.daemonize = False
 
-    def eval(self, id, args, extra_args=None):
+    def eval(self, record_id, args, extra_args=None):
         "Actually do the function evaluation (separate thread)"
-        logger.error("Call to base MPIWorker.eval!")
+        logger.error("Call to base MPIWorker.eval(%d, %s, %s)",
+                     record_id, args, extra_args)
 
-    def on_eval(self, id, args, extra_args=None):
+    def _eval_wrap(self, record_id, args, extra_args=None):
+        "Wrapper for eval request (handle evaluation crash)"
+        try:
+            if extra_args is None:
+                self.eval(record_id, args)
+            else:
+                self.eval(record_id, args, extra_args)
+        except Exception:
+            logger.error("Function evaluation failed")
+            self.finish_cancel(record_id)
+
+    def on_eval(self, record_id, args, extra_args=None):
         "Handle eval request."
         logger.debug("In MPIWorker.on_eval")
-        targs = (id, args)
-        if extra_args is not None:
-            targs = (id, args, extra_args)
-        self._eval_thread = Thread(target=self.eval,args=targs)
+        self._eval_thread = Thread(target=self._eval_wrap,
+                                   args=(record_id, args, extra_args))
         self._eval_thread.daemon = self.daemonize
         self._eval_killed = False
         self._eval_thread.start()
+        logger.debug("Returning after worker thread start")
 
-    def on_kill(self, id):
+    def on_kill(self, record_id):
         "Handle kill request."
-        logger.debug("In MPIWorker.on_kill")
+        logger.debug("In MPIWorker.on_kill(%d)", record_id)
         self._eval_killed = True
 
     def on_terminate(self):
@@ -202,7 +212,7 @@ class MPIWorker(object):
 
     def send(self, *args):
         "Queue message to process 0 (where the controller lives)."
-        logger.debug("Queue outgoing message")
+        logger.debug("Queue outgoing message %s", args)
         self._outbox.put(args)
 
     def update(self, record_id, **kwargs):
@@ -248,31 +258,37 @@ class MPIWorker(object):
         self.send('kill', record_id)
 
     def _handle_message(self):
+        "Handle an incoming message and dispatch to handler."
         logger.debug("Handle incoming message")
         try:
             s = MPI.Status()
             data = comm.recv(status=s)
+            logger.debug("Incoming message received")
             mname = "on_{0}".format(data[0])
-            logger.debug("Call to {0}{1}".format(mname, data[1:]))
+            logger.debug("Call to %s%s", mname, data[1:])
             method = getattr(self, mname)
             method(*data[1:])
-        except:
+        except Exception:
             logger.debug("Exception in message handler")
 
     def run(self):
+        "Run the main loop."
         self._running = True
         while self._running:
             if comm.Iprobe():
                 self._handle_message()
             elif self._eval_thread and not self._eval_thread.is_alive():
+                logger.debug("Join worker eval thread")
                 self._eval_thread.join()
                 self._eval_thread = None
+                logger.debug("Joined eval thread")
             else:
                 try:
                     timeout = 0.005
                     msg = self._outbox.get(True, timeout)
-                    logger.debug("Handle outgoing message")
+                    logger.debug("MPI send to 0: %s", msg)
                     comm.send(msg, dest=0, tag=0)
+                    logger.debug("MPI send completed")
                 except Queue.Empty:
                     pass
 
@@ -295,13 +311,9 @@ class MPISimpleWorker(MPIWorker):
             record_id: Identifier for the function evaluation
             params: Set of parameters
         """
-        logger.debug("Eval {0} at {1}".format(record_id, params))
-        try:
-            value = self.f(*params)
-            self.finish_success(record_id, value)
-        except:
-            logger.warning("Function evaluation failed")
-            self.finish_cancel(record_id)
+        logger.debug("Eval %d at %s", record_id, params)
+        value = self.f(*params)
+        self.finish_success(record_id, value)
 
 
 class MPIProcessWorker(MPIWorker):

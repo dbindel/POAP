@@ -148,7 +148,7 @@ class ThreadedTCPServer(socketserver.ThreadingMixIn,
         strategy: redirects to the controller strategy
     """
 
-    def __init__(self, sockname=("localhost",0), strategy=None, handlers={}):
+    def __init__(self, sockname=("localhost", 0), strategy=None, handlers={}):
         """Initialize the controller on the given (host,port) address
 
         Args:

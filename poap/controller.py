@@ -165,10 +165,11 @@ class SerialController(Controller):
                 try:
                     value = self.objective(*proposal.record.params)
                     proposal.record.complete(value)
-                except:
+                except Exception:
                     logger.exception(exc_info=sys.exc_info())
                     proposal.record.cancel()
-                    raise
+                    if reraise:
+                        raise
             else:
                 logger.debug("Reject proposal")
                 proposal.reject()
@@ -308,7 +309,7 @@ class ThreadController(Controller):
         "Run the optimization and return the best value."
         while True:
             self._run_queued_messages()
-            time.sleep(0) # Yields to other threads
+            time.sleep(0)  # Yields to other threads
             proposal = self.strategy.propose_action()
             if not proposal:
                 self._run_message()
@@ -472,7 +473,7 @@ class BasicWorkerThread(BaseWorkerThread):
             value = self.objective(*record.params)
             self.finish_success(record, value)
             logger.debug("Worker finished feval successfully")
-        except:
+        except Exception:
             self.finish_cancelled(record)
             logger.debug("Worker feval exited with exception")
 
@@ -559,7 +560,7 @@ class SimTeamController(Controller):
                 try:
                     record.complete(self.objective(*record.params))
                     logger.debug("Finished evaluation successfully")
-                except:
+                except Exception:
                     record.cancel()
                     logger.debug("Finished evaluation with exception")
                 self.workers += 1
@@ -586,8 +587,8 @@ class SimTeamController(Controller):
     def advance_time(self):
         "Advance time to the next event."
         assert self.time_events, "Deadlock detected!"
-        time, id, event = heapq.heappop(self.time_events)
-        self.time = time
+        event_time, event_id, event = heapq.heappop(self.time_events)
+        self.time = event_time
         event()
 
     def add_timer(self, timeout, event):
@@ -764,7 +765,7 @@ class ScriptedController(Controller):
             skip: if True, skip over all None proposals
         """
         logger.debug("Script: accept terminate")
-        self.check_terminate(self.strategy.propose_action()).accept()
+        self.check_terminate(self.proposal(skip=skip)).accept()
 
     def reject_eval(self, args=None, pred=None, skip=False):
         """Assert next proposal is an eval, which we reject.

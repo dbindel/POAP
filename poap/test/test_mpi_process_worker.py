@@ -13,12 +13,19 @@ from poap.strategy import AddArgStrategy
 from poap.strategy import ChaosMonkeyStrategy
 from poap.mpiserve import MPIController
 from poap.mpiserve import MPIProcessWorker
-from poap.test.monitor import add_monitor
 
 
 class DummySim(MPIProcessWorker):
+    "Dummy simulation class."
 
     def eval(self, record_id, params, extra_args=None):
+        """Handle dummy simulation function evaluation.
+
+        Args:
+            record_id: Identifier for feval record_id
+            params: Parameters to function
+            extra_args: Used to pass the name of the simulator
+        """
         try:
             logging.debug("In eval")
             args = [extra_args, str(*params)]
@@ -27,23 +34,20 @@ class DummySim(MPIProcessWorker):
             data = self.process.communicate()[0]
             self.update(record_id, time=time.clock()-t0)
             self.finish_success(record_id, float(data))
-            logging.info("Success: {0}".format(params))
+            logging.info("Success: %s", params)
         except ValueError:
             logging.debug("Caught ValueError")
             self.update(record_id, time=time.clock()-t0)
             if self._eval_killed:
                 self.finish_killed(record_id)
-                logging.info("Killed: {0}".format(params))
+                logging.info("Killed: %s", params)
             else:
                 self.finish_cancel(record_id)
-                logging.info("Failure: {0}".format(params))
-        except:
-            logging.error("Caught other exception")
-            self.finish_cancel(record_id)
-            logging.info("Failure: {0}".format(params))
+                logging.info("Failure: %s", params)
 
 
 def worker_main():
+    "Worker main routine (run DummySim)."
     logging.basicConfig(filename='test_mpi_pw.log-{0}'.format(rank),
                         format="%(name)-18s: %(levelname)-8s %(message)s",
                         level=logging.DEBUG)
@@ -69,9 +73,9 @@ def main():
     strategy = AddArgStrategy(strategy, extra_args='./dummy_sim')
     strategy = ChaosMonkeyStrategy(controller, strategy, mtbf=3)
     controller.strategy = strategy
-    #add_monitor(controller, 1)
     result = controller.run()
-    logging.info("Final: {0:.3e} @ {1} time {2}".format(result.value, result.params, result.time))
+    logging.info("Final: %g @ %s time %g",
+                 result.value, result.params, result.time)
 
 
 if __name__ == '__main__':
