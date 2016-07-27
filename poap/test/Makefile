@@ -38,3 +38,4 @@ clean:
 	rm -f *,cover ../*,cover
 	rm -f *.log-*
 	rm -f test_mpi_process_worker.o*
+	rm -f test_mpiserve.o*
