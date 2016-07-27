@@ -74,8 +74,7 @@ def main():
     strategy = ChaosMonkeyStrategy(controller, strategy, mtbf=3)
     controller.strategy = strategy
     result = controller.run()
-    logging.info("Final: %g @ %s time %g",
-                 result.value, result.params, result.time)
+    print("Final: {0:.3e} @ {1}".format(result.value, result.params))
 
 
 if __name__ == '__main__':

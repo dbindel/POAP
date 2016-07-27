@@ -78,7 +78,7 @@ class MPIController(Controller):
         """
         logger.debug("Handle incoming message")
         s = MPI.Status()
-        data = comm.recv(status=s, source=MPI.ANY_SOURCE)
+        data = comm.recv(status=s, source=MPI.ANY_SOURCE, tag=0)
         logger.debug("Received message: %s", data)
         mname = data[0]
         record = self._recids[data[1]]
@@ -263,7 +263,7 @@ class MPIWorker(object):
         logger.debug("Handle incoming message")
         try:
             s = MPI.Status()
-            data = comm.recv(status=s)
+            data = comm.recv(status=s, source=0, tag=0)
             logger.debug("Incoming message received")
             mname = "on_{0}".format(data[0])
             logger.debug("Call to %s%s", mname, data[1:])

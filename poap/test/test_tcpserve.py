@@ -9,7 +9,7 @@ from poap.tcpserve import SimpleSocketWorker
 
 
 # Set up default host, port, and time
-TIMEOUT=0
+TIMEOUT = 0
 
 
 def f(x):
@@ -55,8 +55,7 @@ def main():
     print("Final: {0:.3e} @ {1}".format(result.value, result.params))
 
 
-
 if __name__ == '__main__':
     if len(sys.argv) > 1:
-        TIMEOUT=float(sys.argv[1])
+        TIMEOUT = float(sys.argv[1])
     main()

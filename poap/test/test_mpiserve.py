@@ -37,7 +37,7 @@ def main():
     strategy = FixedSampleStrategy([1, 2, 3, 4, 5])
     c = MPIController(strategy)
     result = c.run()
-    logging.info("Final: %g @ %s", result.value, result.params)
+    print("Final: {0:.3e} @ {1}".format(result.value, result.params))
 
 
 if __name__ == '__main__':
