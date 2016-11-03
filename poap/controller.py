@@ -565,7 +565,7 @@ class SimTeamController(Controller):
                     logger.debug("Finished evaluation with exception")
                 self.workers += 1
 
-        self.add_timer(self.delay(), event)
+        self.add_timer(self.delay(record), event)
 
     def kill_work(self, proposal):
         "Submit a kill event."
@@ -580,7 +580,7 @@ class SimTeamController(Controller):
             if not record.is_done:
                 logger.debug("Finished killing evaluation")
                 record.kill()
-                self.workers = self.workers + 1
+                self.workers += 1
 
         self.add_timer(0, event)
 
