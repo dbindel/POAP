@@ -34,3 +34,12 @@ the strategies of relevant events through callback functions.
 
 Most users will probably want to provide their own strategies,
 controllers, or both.
+
+=============================================================
+Developers
+=============================================================
+
+Build Status:
+
+.. image:: https://travis-ci.org/dme65/POAP.svg?branch=master
+    :target: https://travis-ci.org/dme65/POAP
