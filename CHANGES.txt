@@ -1,3 +1,7 @@
+v0.1.25, 2016-11-04
+	Changed delay routine in sim controller to take record.
+	Added Travis CI integration.
+
 v0.1.24, 2016-07-27
 	Added source/tag on MPI receives (compatibility with older mpi4py).
 
