@@ -16,7 +16,7 @@ def objective(x):
     return (x-0.123)*(x-0.123)
 
 
-def delay():
+def delay(record):
     "Run for about five seconds before returning."
     return 5 + random.random()
 

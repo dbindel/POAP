@@ -15,9 +15,8 @@ def objective(x):
     return (x-0.123)*(x-0.123)
 
 
-def delay():
-    "Delay term"
-    return 5 + random.random()
+def delay(record):
+    return 5 + 5 * (record.params[0] > 0.25)
 
 
 def main():
