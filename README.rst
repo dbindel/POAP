@@ -41,5 +41,5 @@ Developers
 
 Build Status:
 
-.. image:: https://travis-ci.org/dme65/POAP.svg?branch=master
-    :target: https://travis-ci.org/dme65/POAP
+.. image:: https://travis-ci.org/dbindel/POAP.svg?branch=master
+    :target: https://travis-ci.org/dbindel/POAP
