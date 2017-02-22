@@ -166,7 +166,8 @@ class SerialController(Controller):
                     value = self.objective(*proposal.record.params)
                     proposal.record.complete(value)
                 except Exception:
-                    logger.exception(exc_info=sys.exc_info())
+                    logger.exception("Error calling objective", \
+                                     exc_info=sys.exc_info())
                     proposal.record.cancel()
                     if reraise:
                         raise
