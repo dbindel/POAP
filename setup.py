@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='POAP',
-    version='0.1.26',
+    version='0.1.27',
     author='David Bindel',
     author_email='bindel@cornell.edu',
     packages=['poap', 'poap.test'],
@@ -21,6 +21,5 @@ setup(
         'Programming Language :: Python :: 3.3',
         'Programming Language :: Python :: 3.4',        
     ],
-    install_requires=[
-    ],
+    install_requires=['dill'],
 )

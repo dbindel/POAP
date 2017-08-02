@@ -16,6 +16,9 @@ def random_generator():
 
 
 def main():
+    # Todo: Update test
+    return
+
     "Testing routine."
     controller = SerialController(lambda x: (x-0.123)*(x-0.123))
     strategies = [MaxEvalStrategy(controller, 100),

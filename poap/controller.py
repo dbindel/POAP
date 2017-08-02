@@ -15,7 +15,8 @@ import threading
 import logging
 import time
 from poap.strategy import EvalRecord
-
+import dill
+import os
 
 # Get module-level logger
 logger = logging.getLogger(__name__)
@@ -146,10 +147,51 @@ class SerialController(Controller):
         Controller.__init__(self)
         self.objective = objective
         self.skip = skip
+        self.checkpoint_name = "checkpoint.pkl"
 
-    def _run(self, merit=None, filter=None, reraise=True):
+    def _checkpoint(self, merit, filter, reraise):
+        with open(self.checkpoint_name, 'w') as output:
+            dill.dump(self.__class__.__name__, output, dill.HIGHEST_PROTOCOL)
+            dill.dump(self.strategy, output, dill.HIGHEST_PROTOCOL)
+            dill.dump(self.objective, output, dill.HIGHEST_PROTOCOL)
+            dill.dump(self.skip, output, dill.HIGHEST_PROTOCOL)
+            dill.dump(self.fevals, output, dill.HIGHEST_PROTOCOL)
+            dill.dump(self.feval_callbacks, output, dill.HIGHEST_PROTOCOL)
+            dill.dump(self.term_callbacks, output, dill.HIGHEST_PROTOCOL)
+            dill.dump(merit, output, dill.HIGHEST_PROTOCOL)
+            dill.dump(filter, output, dill.HIGHEST_PROTOCOL)
+            dill.dump(reraise, output, dill.HIGHEST_PROTOCOL)
+
+    def resume(self):
+        if not os.path.isfile(self.checkpoint_name):
+            raise NameError("Checkpoint file does not exist")
+        with open(self.checkpoint_name, 'r') as input:
+            name = dill.load(input)
+            if name != self.__class__.__name__:
+                raise NameError('Trying to resume with different controller')
+            self.strategy = dill.load(input)
+            self.objective = dill.load(input)
+            self.skip = dill.load(input)
+            self.fevals = dill.load(input)
+            self.feval_callbacks = dill.load(input)
+            self.term_callbacks = dill.load(input)
+            merit = dill.load(input)
+            filter = dill.load(input)
+            reraise = dill.load(input)
+
+            try:
+                return self._run(merit=merit, filter=filter, reraise=reraise, checkpoint=True)
+            finally:
+                self.call_term_callbacks()
+
+    def _run(self, merit=None, filter=None, reraise=True, checkpoint=False):
         "Run the optimization and return the best value."
         while True:
+            # Checkpoint before asking for a proposal
+            if checkpoint:
+                self._checkpoint(merit, filter, reraise)
+
+            # Ask for a proposal
             proposal = self.strategy.propose_action()
             if not proposal:
                 if not self.skip:
@@ -166,7 +208,7 @@ class SerialController(Controller):
                     value = self.objective(*proposal.record.params)
                     proposal.record.complete(value)
                 except Exception:
-                    logger.exception("Error calling objective", \
+                    logger.exception("Error calling objective",
                                      exc_info=sys.exc_info())
                     proposal.record.cancel()
                     if reraise:
@@ -175,7 +217,7 @@ class SerialController(Controller):
                 logger.debug("Reject proposal")
                 proposal.reject()
 
-    def run(self, merit=None, filter=None, reraise=True):
+    def run(self, merit=None, filter=None, reraise=True, checkpoint=False):
         """Run the optimization and return the best value.
 
         Args:
@@ -189,8 +231,10 @@ class SerialController(Controller):
             Record minimizing merit() and satisfying filter();
             or None if nothing satisfies the filter
         """
+        if checkpoint and os.path.isfile(self.checkpoint_name):
+            raise NameError("Checkpoint file already exists")
         try:
-            return self._run(merit=merit, filter=filter, reraise=reraise)
+            return self._run(merit=merit, filter=filter, reraise=reraise, checkpoint=checkpoint)
         finally:
             self.call_term_callbacks()
 
@@ -227,6 +271,7 @@ class ThreadController(Controller):
         Controller.__init__(self)
         self.workers = Queue.Queue()
         self.messages = Queue.Queue()
+        self.checkpoint_name = "checkpoint.pkl"
 
     def ping(self):
         "Tell controller to consult strategies when possible"
@@ -306,11 +351,43 @@ class ThreadController(Controller):
         while not self.messages.empty():
             self._run_message()
 
+    def _checkpoint(self, merit, filter):
+        with open(self.checkpoint_name, 'w') as output:
+            dill.dump(self.__class__.__name__, output, dill.HIGHEST_PROTOCOL)
+            dill.dump(self.strategy, output, dill.HIGHEST_PROTOCOL)
+            dill.dump(self.fevals, output, dill.HIGHEST_PROTOCOL)
+            dill.dump(self.feval_callbacks, output, dill.HIGHEST_PROTOCOL)
+            dill.dump(self.term_callbacks, output, dill.HIGHEST_PROTOCOL)
+            dill.dump(merit, output, dill.HIGHEST_PROTOCOL)
+            dill.dump(filter, output, dill.HIGHEST_PROTOCOL)
+
+    # def resume(self):
+    #     if not os.path.isfile(self.checkpoint_name):
+    #         raise NameError("Checkpoint file does not exist")
+    #     with open(self.checkpoint_name, 'r') as input:
+    #         name = dill.load(input)
+    #         if name != self.__class__.__name__:
+    #             raise NameError('Trying to resume with different controller')
+    #         self.strategy = dill.load(input)
+    #         self.fevals = dill.load(input)
+    #         self.feval_callbacks = dill.load(input)
+    #         self.term_callbacks = dill.load(input)
+    #         merit = dill.load(input)
+    #         filter = dill.load(input)
+    #
+    #         try:
+    #             return self._run(merit=merit, filter=filter)
+    #         finally:
+    #             self.call_term_callbacks()
+
     def _run(self, merit=None, filter=filter):
         "Run the optimization and return the best value."
         while True:
             self._run_queued_messages()
             time.sleep(0)  # Yields to other threads
+
+            # self._checkpoint(merit, filter)
+
             proposal = self.strategy.propose_action()
             if not proposal:
                 self._run_message()

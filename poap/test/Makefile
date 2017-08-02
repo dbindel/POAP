@@ -15,6 +15,7 @@ test: dummy_sim
 	python test_thread_controller.py
 	python test_thread_strategy.py
 	python test_tcpserve.py
+	python test_checkpointing.py
 
 testmpi: dummy_sim
 	mpirun -n 2 python mpi_silly.py

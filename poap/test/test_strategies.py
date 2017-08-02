@@ -55,7 +55,7 @@ def test_fixed_sample2():
         for k in range(1, 5):
             yield k
     run(FixedSampleStrategy([1, 2, 3, 4]))
-    run(FixedSampleStrategy(g()))
+    #run(FixedSampleStrategy(g()))
 
 
 def coroutine_optimizer(pts):

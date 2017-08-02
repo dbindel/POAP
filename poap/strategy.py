@@ -370,6 +370,7 @@ class RetryStrategy(BaseStrategy):
         self.num_eval_pending = 0
         self.num_eval_running = 0
         self._in_flight = {}
+        self.next_key = 0
 
     @property
     def num_eval_outstanding(self):
@@ -384,8 +385,12 @@ class RetryStrategy(BaseStrategy):
         "Put a retry proposal in the queue."
         if not hasattr(proposal, 'retry'):
             logger.debug("Setting up retry")
+            # Maintain our keys
+            proposal.retry_id = self.next_key
+            self.next_key += 1
             self._set(proposal, proposal.copy())
-            self.retry = True
+            #self.retry = True
+            proposal.retry = True
             if proposal.action == 'eval':
                 proposal.add_callback(self.on_reply)
                 self.num_eval_pending += 1
@@ -411,6 +416,8 @@ class RetryStrategy(BaseStrategy):
         logger.debug("Recording accepted eval+retry proposal")
         self.num_eval_pending -= 1
         self.num_eval_running += 1
+        proposal.record.retry_id = self.next_key
+        self.next_key += 1
         self._rekey(proposal, proposal.record)
 
     def on_reply_reject(self, proposal):
@@ -439,11 +446,11 @@ class RetryStrategy(BaseStrategy):
 
     def _set(self, key, proposal):
         "Record a retry proposal draft associated with a given key."
-        self._in_flight[id(key)] = proposal
+        self._in_flight[key.retry_id] = proposal
 
     def _pop(self, key):
         "Pop a retry proposal draft from the in-flight dictionary"
-        return self._in_flight.pop(id(key))
+        return self._in_flight.pop(key.retry_id)
 
     def _rekey(self, old_key, new_key):
         "Change the key on a retry proposal draft."
@@ -468,6 +475,8 @@ class FixedSampleStrategy(BaseStrategy):
     list or a generator function).  One can use a generator for an
     infinite sequence if the fixed sampling strategy is used in
     combination with a strategy that provides a termination criterion.
+
+    (HAVE TO BE A LIST FOR NOW)
     """
 
     def __init__(self, points):
@@ -476,27 +485,27 @@ class FixedSampleStrategy(BaseStrategy):
         Args:
             points: Points list or generator function.
         """
-        def point_generator():
-            "Generator wrapping the points list."
-            for point in points:
-                yield point
-        self.point_generator = point_generator()
+
+        self.points = points
+        self.iter = 0
         self.retry = RetryStrategy()
 
     def propose_action(self):
         "Propose an action based on outstanding points."
-        try:
-            if self.retry.empty():
+
+        if self.retry.empty():
+            if self.iter == len(self.points):  # No more points
+                logger.debug("Done fixed schedule; {0} outstanding evals".format(
+                    self.retry.num_eval_outstanding))
+                if self.retry.num_eval_outstanding == 0:
+                    return self.propose_terminate()
+            else:
                 logger.debug("Getting new point from fixed schedule")
-                point = next(self.point_generator)
+                point = self.points[self.iter]
+                self.iter += 1
                 proposal = self.propose_eval(point)
                 self.retry.rput(proposal)
-            return self.retry.get()
-        except StopIteration:
-            logger.debug("Done fixed schedule; {0} outstanding evals".format(
-                self.retry.num_eval_outstanding))
-            if self.retry.num_eval_outstanding == 0:
-                return self.propose_terminate()
+        return self.retry.get()
 
 
 class CoroutineStrategy(BaseStrategy):
