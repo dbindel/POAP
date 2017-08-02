@@ -150,7 +150,7 @@ class SerialController(Controller):
         self.checkpoint_name = "checkpoint.pkl"
 
     def _checkpoint(self, merit, filter, reraise):
-        with open(self.checkpoint_name, 'w') as output:
+        with open(self.checkpoint_name, 'wb') as output:
             dill.dump(self.__class__.__name__, output, dill.HIGHEST_PROTOCOL)
             dill.dump(self.strategy, output, dill.HIGHEST_PROTOCOL)
             dill.dump(self.objective, output, dill.HIGHEST_PROTOCOL)
@@ -165,7 +165,7 @@ class SerialController(Controller):
     def resume(self):
         if not os.path.isfile(self.checkpoint_name):
             raise NameError("Checkpoint file does not exist")
-        with open(self.checkpoint_name, 'r') as input:
+        with open(self.checkpoint_name, 'rb') as input:
             name = dill.load(input)
             if name != self.__class__.__name__:
                 raise NameError('Trying to resume with different controller')
