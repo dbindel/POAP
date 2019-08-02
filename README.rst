@@ -35,6 +35,23 @@ the strategies of relevant events through callback functions.
 Most users will probably want to provide their own strategies,
 controllers, or both.
 
+Citing Us
+---------
+
+If you use POAP, please cite the following paper:
+`David Eriksson, David Bindel, Christine A. Shoemaker. pySOT and POAP: An event-driven asynchronous framework for surrogate optimization. arXiv preprint arXiv:1908.00420, 2019`_
+
+.. code-block:: html
+
+  @misc{pysot_poap,
+    Author = {David Eriksson and David Bindel and Christine A. Shoemaker},
+    Title = {pySOT and POAP: An event-driven asynchronous framework for surrogate optimization},
+    Year = {2019},
+    Eprint = {arXiv:1908.00420},
+  }
+.. _`David Eriksson, David Bindel, Christine A. Shoemaker. pySOT and POAP: An event-driven asynchronous framework for surrogate optimization. arXiv preprint arXiv:1908.00420, 2019`: https://arxiv.org/abs/1908.00420
+
+
 =============================================================
 Developers
 =============================================================
